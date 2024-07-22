@@ -84,9 +84,8 @@ class PackageBuild:
                 "rm -rf build",
             ]
         )
-
-    def git_build(self, args=None, **kwargs):
-        """
+    def git_build2(self, args=None, **kwargs):
+            """
         git build
         """
         logging.info("{} build".format(self.name))
@@ -125,6 +124,25 @@ class PackageBuild:
         self.git_push()
         self.git_tags()
         # self.pip_install()
+
+    def git_build(self, args=None, **kwargs):
+        """
+        git build
+        """
+        logging.info("{} build".format(self.name))
+        self.git_pull()
+        self.git_clear_build()
+
+        run_shell_list(["rm -rf dist"])
+        run_shell_list(["funpoetry version-upgrade"])
+        run_shell_list(["poetry build"])  # 编译  生成 wheel 包    
+        run_shell_list(["poetry publish"])
+        run_shell_list(["pip install dist/*.whl"])
+        run_shell_list(["rm -rf dist"])
+
+        self.git_clear_build()
+        self.git_push()
+        self.git_tags()
 
     def git_clean_history(self, args=None, **kwargs):
         """
