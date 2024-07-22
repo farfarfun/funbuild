@@ -84,8 +84,9 @@ class PackageBuild:
                 "rm -rf build",
             ]
         )
+
     def git_build2(self, args=None, **kwargs):
-            """
+        """
         git build
         """
         logging.info("{} build".format(self.name))
@@ -135,7 +136,7 @@ class PackageBuild:
 
         run_shell_list(["rm -rf dist"])
         run_shell_list(["funpoetry version-upgrade"])
-        run_shell_list(["poetry build"])  # 编译  生成 wheel 包    
+        run_shell_list(["poetry build"])  # 编译  生成 wheel 包
         run_shell_list(["poetry publish"])
         run_shell_list(["pip install dist/*.whl"])
         run_shell_list(["rm -rf dist"])
