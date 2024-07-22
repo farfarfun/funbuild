@@ -96,6 +96,7 @@ class PackageBuild:
 
         for i in range(size):
             os.environ["funbuild_multi_index"] = str(i)
+            run_shell_list(["funpoetry version-upgrade"])
             run_shell_list(["python -m build --wheel -n"])  # 编译  生成 wheel 包
             run_shell_list(["rm -rf build"])
         run_shell_list(["rm -rf build", "twine upload dist/*", "pip install dist/*"])
