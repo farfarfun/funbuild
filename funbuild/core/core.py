@@ -4,22 +4,10 @@
 
 import argparse
 import logging
-import os
 import time
 
 from funbuild.shell import run_shell, run_shell_list
 from git import Repo
-
-
-def package_size():
-    data = [
-        line
-        for line in open("./setup.py", "r").read().split("\n")
-        if "multi_package" in line
-    ]
-    if len(data) == 1:
-        return int(data[0].split("=")[1])
-    return 1
 
 
 class PackageBuild:
@@ -58,12 +46,11 @@ class PackageBuild:
         logging.info("{} install".format(self.name))
         run_shell_list(
             [
-                "pip uninstall {} -y".format(self.name),
-                # 'python3 setup.py install',
-                "pip install .",
-                "rm -rf *.egg-info",
+                "poetry lock",
+                "poetry build",
+                "poetry publish",
+                "pip install dist/*.whl",
                 "rm -rf dist",
-                "rm -rf build",
             ]
         )
         self.git_clear_build()
@@ -85,47 +72,6 @@ class PackageBuild:
             ]
         )
 
-    def git_build2(self, args=None, **kwargs):
-        """
-        git build
-        """
-        logging.info("{} build".format(self.name))
-        self.git_pull()
-        self.git_clear_build()
-        size = package_size()
-
-        for i in range(size):
-            os.environ["funbuild_multi_index"] = str(i)
-            run_shell_list(["funpoetry version-upgrade"])
-            run_shell_list(["python -m build --wheel -n"])  # 编译  生成 wheel 包
-            run_shell_list(["rm -rf build"])
-        run_shell_list(["rm -rf build", "twine upload dist/*", "pip install dist/*"])
-
-        # if args.multi:
-        #     run_shell_list(
-        #         [
-        #             "python setup.py bdist_wheel",
-        #             "twine upload dist/*",
-        #             "pip install dist/*",
-        #         ]
-        #     )
-        # else:
-        #     run_shell_list(
-        #         [
-        #             f"python -m build --wheel -n",  # 编译  生成 wheel 包
-        #             # f"python3 {set_up_file} sdist",  # 生成 tar.gz
-        #             # f'python3 {set_up_file} bdist_egg',  # 生成 egg 包
-        #             # f"python3 {set_up_file} ",  #
-        #             # twine register dist/*
-        #             "twine upload dist/*",  # 发布包
-        #             "pip install dist/*",  # 安装包
-        #         ]
-        #     )
-        self.git_clear_build()
-        self.git_push()
-        self.git_tags()
-        # self.pip_install()
-
     def git_build(self, args=None, **kwargs):
         """
         git build
@@ -134,12 +80,17 @@ class PackageBuild:
         self.git_pull()
         self.git_clear_build()
 
-        run_shell_list(["rm -rf dist"])
-        run_shell_list(["funpoetry version-upgrade"])
-        run_shell_list(["poetry build"])  # 编译  生成 wheel 包
-        run_shell_list(["poetry publish"])
-        run_shell_list(["pip install dist/*.whl"])
-        run_shell_list(["rm -rf dist"])
+        run_shell_list(
+            [
+                "rm -rf dist",
+                "funpoetry version-upgrade",
+                "poetry lock",
+                "poetry build",
+                "poetry publish",
+                "pip install dist/*.whl",
+                "rm -rf dist",
+            ]
+        )
 
         self.git_clear_build()
         self.git_push()
