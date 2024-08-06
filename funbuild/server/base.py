@@ -82,7 +82,7 @@ def server_parser(server: BaseServer):
     return parser
 
 
-class ExampleServer(BaseServer):
+class BaseCommandServer(BaseServer):
     def start(self, *args, **kwargs):
         print("start")
 
@@ -90,8 +90,8 @@ class ExampleServer(BaseServer):
         print("end")
 
 
-def example():
-    server = ExampleServer()
+def funserver():
+    server = BaseCommandServer()
     parser = server_parser(server)
     args = parser.parse_args()
     args.func(args)
