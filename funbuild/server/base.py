@@ -79,6 +79,19 @@ def server_parser(server: BaseServer):
 
     build_parser4 = subparsers.add_parser("update", help="update server")
     build_parser4.set_defaults(func=server._update)
+    return parser
 
+
+class ExampleServer(BaseServer):
+    def start(self, *args, **kwargs):
+        print("start")
+
+    def stop(self, *args, **kwargs):
+        print("end")
+
+
+def example():
+    server = ExampleServer()
+    parser = server_parser(server)
     args = parser.parse_args()
     args.func(args)
