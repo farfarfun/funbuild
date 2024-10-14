@@ -225,6 +225,7 @@ class UVBuild(BaseBuild):
             if url and opts:
                 opts.append(f"--publish-url={url}")
         a = ["uv", "publish"] + opts + sys.argv[1:]
+        print(" ".join(a))
         return [" ".join(a)]
 
     def _cmd_build(self) -> List[str]:
