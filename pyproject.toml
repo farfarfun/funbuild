@@ -4,7 +4,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
 name = "funbuild"
-version = "1.4.17"
+version = "1.4.18"
 description = "funbuild build farfarfun package"
 authors = [ "farfun <1007530194@qq.com>",]
 readme = "README.md"

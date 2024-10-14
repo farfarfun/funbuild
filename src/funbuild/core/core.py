@@ -4,103 +4,78 @@
 
 import argparse
 import logging
+import os
 import time
+from typing import List
 
+import toml
 from git import Repo
 
+from funbuild.core.upgrade import version_upgrade
 from funbuild.shell import run_shell, run_shell_list
-from .upgrade import version_upgrade
 
-class PackageBuild:
-    """
-    打包的工具类
-    """
 
+class BaseBuild:
     def __init__(self, name=None):
         self.repo_path = run_shell("git rev-parse --show-toplevel", printf=False)
         self.name = name or self.repo_path.split("/")[-1]
         self.repo = Repo(self.repo_path)
         self.git_url = [url for url in self.repo.remote().urls][0]
+        self.version = None
 
-    def git_pull(self, args=None, **kwargs):
-        """
-        git pull
-        """
+    def check_type(self) -> bool:
+        raise NotImplementedError
+
+    def __version_upgrade(self, step=128):
+        version = self.version
+        if version is None:
+            version = "0.0.1"
+
+        version1 = [int(i) for i in version.split(".")]
+        version2 = version1[0] * step * step + version1[1] * step + version1[2] + 1
+
+        version1[2] = version2 % step
+        version1[1] = int(version2 / step) % step
+        version1[0] = int(version2 / step / step)
+
+        return "{}.{}.{}".format(*version1)
+
+    def _cmd_build(self) -> List[str]:
+        return []
+
+    def _cmd_publish(self) -> List[str]:
+        return []
+
+    def _cmd_install(self) -> List[str]:
+        return ["pip install dist/*.whl"]
+
+    def _cmd_delete(self) -> List[str]:
+        return ["rm -rf dist", "rm -rf build", "rm -rf *.egg-info"]
+
+    def funbuild_upgrade(self, args=None, **kwargs):
+        self.__version_upgrade()
+
+    def funbuild_pull(self, args=None, **kwargs):
         logging.info("{} pull".format(self.name))
-        # run_shell("git pull")
         self.repo.remote().pull()
 
-    def git_push(self, args=None, **kwargs):
-        """
-        git push
-        """
-        logging.info("{} push".format(self.name))
+    def funbuild_push(self, args=None, **kwargs):
+        logging.info(f"{self.name} push")
         run_shell_list(["git add -A", 'git commit -a -m "add"', "git push"])
-        self.repo.index.add(f"{self.repo_path}/*")
-        self.repo.index.commit(message="add")
-        self.repo.remote().pull()
 
-    def git_install(self, args=None, **kwargs):
-        """
-        git install
-        """
-        logging.info("{} install".format(self.name))
-        run_shell_list(
-            [
-                "poetry lock",
-                "poetry build",
-                "poetry publish",
-                "pip install dist/*.whl",
-                "rm -rf dist",
-            ]
-        )
-        self.git_clear_build()
+    def funbuild_install(self, args=None, **kwargs):
+        logging.info(f"{self.name} install")
+        run_shell_list(self._cmd_build() + self._cmd_install() + self._cmd_delete())
 
-    def pip_install(self):
-        """
-        pip install
-        """
-        run_shell("pip install -U -q git+{}".format(self.git_url))
-        logging.info("pip install {} success".format(self.name))
-
-    def git_clear_build(self):
-        logging.info("{} build clear".format(self.name))
-        run_shell_list(
-            [
-                "rm -rf *.egg-info",
-                "rm -rf dist",
-                "rm -rf build",
-            ]
-        )
-
-    def git_build(self, args=None, **kwargs):
-        """
-        git build
-        """
-        logging.info("{} build".format(self.name))
-        self.git_pull()
-        self.git_clear_build()
-
-        run_shell_list(
-            [
-                "rm -rf dist",
-                "funpoetry version-upgrade",
-                "poetry lock",
-                "poetry build",
-                "poetry publish",
-                "pip install dist/*.whl",
-                "rm -rf dist",
-            ]
-        )
-
-        self.git_clear_build()
-        self.git_push()
+    def funbuild_build(self, args=None, **kwargs):
+        logging.info(f"{self.name} build")
+        self.funbuild_pull()
+        version_upgrade()
+        run_shell_list(self._cmd_build() + self._cmd_publish() + self._cmd_install() + self._cmd_delete())
+        self.funbuild_push()
         self.git_tags()
 
-    def git_clean_history(self, args=None, **kwargs):
-        """
-        git build
-        """
+    def funbuild_clean_history(self, args=None, **kwargs):
         logging.info(f"{self.name} clean history")
         run_shell_list(
             [
@@ -120,9 +95,6 @@ class PackageBuild:
         )
 
     def git_clean(self, args=None, **kwargs):
-        """
-        git clean
-        """
         logging.info("{} clean".format(self.name))
         run_shell_list(
             [
@@ -145,7 +117,85 @@ class PackageBuild:
         self.repo.remote().push(self.repo.tags)
 
 
+class PypiBuild(BaseBuild):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def check_type(self):
+        version_path = "./script/__version__.md"
+        if os.path.exists(version_path):
+            self.version = open(version_path, "r").read()
+            return True
+        return False
+
+    def _cmd_build(self) -> List[str]:
+        return []
+
+    def _cmd_install(self) -> List[str]:
+        return [
+            "pip install dist/*.whl",
+        ]
+
+
+class PoetryBuild(BaseBuild):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def check_type(self) -> bool:
+        toml_path = "./pyproject.toml"
+        if os.path.exists(toml_path):
+            a = toml.load(toml_path)
+            if "tool" in a:
+                self.version = a["tool"]["poetry"]["version"]
+                return True
+        return False
+
+    def _cmd_publish(self) -> List[str]:
+        return ["poetry publish"]
+
+    def _cmd_build(self) -> List[str]:
+        return ["poetry lock", "poetry build"]
+
+
+class UVBuild(BaseBuild):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def check_type(self) -> bool:
+        toml_path = "./pyproject.toml"
+        if os.path.exists(toml_path):
+            a = toml.load(toml_path)
+            if "project" in a:
+                self.version = a["project"]["version"]
+                return True
+        return False
+
+    def _cmd_delete(self) -> List[str]:
+        return super()._cmd_delete() + ["rm -rf src/*.egg-info"]
+
+    def _cmd_publish(self) -> List[str]:
+        return ["uv publish"]
+
+    def _cmd_build(self) -> List[str]:
+        return ["uv lock", "uv build"]
+
+    def _cmd_install(self) -> List[str]:
+        return ["uv pip install dist/*.whl"]
+
+
+def get_build() -> BaseBuild:
+    builders = [UVBuild, PoetryBuild, PypiBuild]
+    for builder in builders:
+        build = builder()
+        if build.check_type():
+            return build
+
+
 def funbuild():
+    builder = get_build()
+    if builder is None:
+        raise Exception(f"build error")
+
     parser = argparse.ArgumentParser(prog="PROG")
     subparsers = parser.add_subparsers(help="sub-command help")
 
@@ -155,33 +205,33 @@ def funbuild():
 
     # 添加子命令
     build_parser = subparsers.add_parser("build", help="build package")
-    build_parser.add_argument("--multi", default=False, action="store_true", help="build multi package")
-    build_parser.set_defaults(func=PackageBuild().git_build)  # 设置默认函数
+    build_parser.set_defaults(func=builder.funbuild_build)  # 设置默认函数
 
     # 添加子命令
     clean_history_parser = subparsers.add_parser("clean_history", help="clean history")
-    clean_history_parser.set_defaults(func=PackageBuild().git_clean_history)  # 设置默认函数
+    clean_history_parser.set_defaults(func=builder.funbuild_clean_history)  # 设置默认函数
 
     # 添加子命令
     pull_parser = subparsers.add_parser("pull", help="git pull")
     pull_parser.add_argument("--quiet", default=True, help="quiet")
-    pull_parser.set_defaults(func=PackageBuild().git_pull)  # 设置默认函数
+    pull_parser.set_defaults(func=builder.funbuild_pull)  # 设置默认函数
 
     # 添加子命令
     push_parser = subparsers.add_parser("push", help="git push")
     push_parser.add_argument("--quiet", default=True, help="quiet")
-    push_parser.set_defaults(func=PackageBuild().git_push)  # 设置默认函数
+    push_parser.set_defaults(func=builder.funbuild_push)  # 设置默认函数
 
     # 添加子命令
     install_parser = subparsers.add_parser("install", help="install package")
-    install_parser.set_defaults(func=PackageBuild().git_install)  # 设置默认函数
+    install_parser.set_defaults(func=builder.funbuild_install)  # 设置默认函数
 
     # 添加子命令
     clear_parser = subparsers.add_parser("clear", help="clear")
-    clear_parser.set_defaults(func=PackageBuild().git_clean)  # 设置默认函数
+    clear_parser.set_defaults(func=builder.git_clean)  # 设置默认函数
+
     # 添加子命令
     tag_parser = subparsers.add_parser("tag", help="git build tag")
-    tag_parser.set_defaults(func=PackageBuild().git_tags)  # 设置默认函数
+    tag_parser.set_defaults(func=builder.git_tags)  # 设置默认函数
 
     args = parser.parse_args()
     args.func(args)
