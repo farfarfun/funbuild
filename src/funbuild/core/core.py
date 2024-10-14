@@ -6,9 +6,10 @@ import argparse
 import logging
 import time
 
-from funbuild.shell import run_shell, run_shell_list
 from git import Repo
 
+from funbuild.shell import run_shell, run_shell_list
+from .upgrade import version_upgrade
 
 class PackageBuild:
     """
@@ -149,17 +150,17 @@ def funbuild():
     subparsers = parser.add_subparsers(help="sub-command help")
 
     # 添加子命令
+    build_parser = subparsers.add_parser("upgrade", help="build package")
+    build_parser.set_defaults(func=version_upgrade)  # 设置默认函数
+
+    # 添加子命令
     build_parser = subparsers.add_parser("build", help="build package")
-    build_parser.add_argument(
-        "--multi", default=False, action="store_true", help="build multi package"
-    )
+    build_parser.add_argument("--multi", default=False, action="store_true", help="build multi package")
     build_parser.set_defaults(func=PackageBuild().git_build)  # 设置默认函数
 
     # 添加子命令
     clean_history_parser = subparsers.add_parser("clean_history", help="clean history")
-    clean_history_parser.set_defaults(
-        func=PackageBuild().git_clean_history
-    )  # 设置默认函数
+    clean_history_parser.set_defaults(func=PackageBuild().git_clean_history)  # 设置默认函数
 
     # 添加子命令
     pull_parser = subparsers.add_parser("pull", help="git pull")
