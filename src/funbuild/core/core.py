@@ -224,7 +224,7 @@ class UVBuild(BaseBuild):
             url = settings.get("repository")
             if url and opts:
                 opts.append(f"--publish-url={url}")
-        a = ["uv", "publish"] + opts + sys.argv[1:]
+        a = ["uv", "publish"] + opts
         print(" ".join(a))
         return [" ".join(a)]
 
