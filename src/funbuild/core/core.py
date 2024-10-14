@@ -9,7 +9,6 @@ from __future__ import annotations
 import argparse
 import logging
 import os
-import sys
 import time
 from configparser import ConfigParser
 from typing import List
