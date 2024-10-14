@@ -1,0 +1,21 @@
+[build-system]
+requires = [ "poetry-core",]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+name = "funbuild"
+version = "1.4.23"
+description = "funbuild build farfarfun package"
+authors = [ "farfun <1007530194@qq.com>",]
+readme = "README.md"
+[[tool.poetry.packages]]
+from = "src"
+include = "*"
+
+[tool.poetry.dependencies]
+python = "^3.8"
+gitpython = "^3.1.43"
+funpoetry = "^1.0.4"
+
+[tool.poetry.scripts]
+funbuild = "funbuild.core:funbuild"

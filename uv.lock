@@ -1,0 +1,7 @@
+version = 1
+requires-python = ">=3.11"
+
+[[package]]
+name = "funbuild"
+version = "1.5.0"
+source = { virtual = "." }

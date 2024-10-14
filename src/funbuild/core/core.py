@@ -11,7 +11,6 @@ from typing import List
 import toml
 from git import Repo
 
-from funbuild.core.upgrade import version_upgrade
 from funbuild.shell import run_shell, run_shell_list
 
 
@@ -47,7 +46,7 @@ class BaseBuild:
         return []
 
     def _cmd_install(self) -> List[str]:
-        return ["pip install dist/*.whl -q"]
+        return ["pip install dist/*.whl"]
 
     def _cmd_delete(self) -> List[str]:
         return ["rm -rf dist", "rm -rf build", "rm -rf *.egg-info"]
@@ -70,7 +69,7 @@ class BaseBuild:
     def funbuild_build(self, args=None, **kwargs):
         logging.info(f"{self.name} build")
         self.funbuild_pull()
-        version_upgrade()
+        self.__version_upgrade()
         run_shell_list(self._cmd_build() + self._cmd_publish() + self._cmd_install() + self._cmd_delete())
         self.funbuild_push()
         self.git_tags()
@@ -180,7 +179,7 @@ class UVBuild(BaseBuild):
         return ["uv lock", "uv build"]
 
     def _cmd_install(self) -> List[str]:
-        return ["uv pip install dist/*.whl -q"]
+        return ["uv pip install dist/*.whl"]
 
 
 def get_build() -> BaseBuild:
@@ -188,21 +187,20 @@ def get_build() -> BaseBuild:
     for builder in builders:
         build = builder()
         if build.check_type():
-            print(f"bulider:{str(build)}")
             return build
 
 
 def funbuild():
     builder = get_build()
     if builder is None:
-        raise Exception("build error")
+        raise Exception(f"build error")
 
     parser = argparse.ArgumentParser(prog="PROG")
     subparsers = parser.add_subparsers(help="sub-command help")
 
     # 添加子命令
     build_parser = subparsers.add_parser("upgrade", help="build package")
-    build_parser.set_defaults(func=version_upgrade)  # 设置默认函数
+    build_parser.set_defaults(func=builder.funbuild_upgrade)  # 设置默认函数
 
     # 添加子命令
     build_parser = subparsers.add_parser("build", help="build package")
