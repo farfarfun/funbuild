@@ -77,9 +77,12 @@ class BaseBuild:
         logging.info(f"{self.name} build")
         self.funbuild_pull()
         self.__version_upgrade()
-        run_shell_list(self._cmd_build() + self._cmd_publish() + self._cmd_install() + self._cmd_delete())
+        run_shell_list(self._cmd_delete()+self._cmd_build() + self._cmd_publish() + self._cmd_install() + self._cmd_delete())
         self.funbuild_push()
         self.git_tags()
+
+
+        
 
     def funbuild_clean_history(self, args=None, **kwargs):
         logging.info(f"{self.name} clean history")
