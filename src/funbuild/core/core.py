@@ -208,7 +208,7 @@ class UVBuild(BaseBuild):
         return [" ".join(a)]
 
     def _cmd_build(self) -> List[str]:
-        return ["uv lock", "uv build"]
+        return ["uv lock", "uv build -q"]
 
     def _cmd_install(self) -> List[str]:
         return ["uv pip install dist/*.whl"]
