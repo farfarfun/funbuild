@@ -1,9 +1,10 @@
 [project]
 name = "funbuild"
-version = "1.5.1"
+version = "1.5.9"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = []
+
 [project.scripts]
 funbuild = "funbuild.core:funbuild"

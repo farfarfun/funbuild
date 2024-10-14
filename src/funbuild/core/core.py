@@ -12,7 +12,6 @@ import os
 import sys
 import time
 from configparser import ConfigParser
-from pathlib import Path
 from typing import List
 
 import toml
@@ -30,6 +29,9 @@ class BaseBuild:
         self.version = None
 
     def check_type(self) -> bool:
+        raise NotImplementedError
+
+    def _write_version(self):
         raise NotImplementedError
 
     def __version_upgrade(self, step=128):
@@ -60,6 +62,8 @@ class BaseBuild:
 
     def funbuild_upgrade(self, args=None, **kwargs):
         self.__version_upgrade()
+        self.version = self.__version_upgrade()
+        self._write_version()
 
     def funbuild_pull(self, args=None, **kwargs):
         logging.info("{} pull".format(self.name))
@@ -76,7 +80,7 @@ class BaseBuild:
     def funbuild_build(self, args=None, **kwargs):
         logging.info(f"{self.name} build")
         self.funbuild_pull()
-        self.__version_upgrade()
+        self.funbuild_upgrade()
         run_shell_list(
             self._cmd_delete() + self._cmd_build() + self._cmd_install() + self._cmd_publish() + self._cmd_delete()
         )
@@ -128,13 +132,17 @@ class BaseBuild:
 class PypiBuild(BaseBuild):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.version_path = "./script/__version__.md"
 
     def check_type(self):
-        version_path = "./script/__version__.md"
-        if os.path.exists(version_path):
-            self.version = open(version_path, "r").read()
+        if os.path.exists(self.version_path):
+            self.version = open(self.version_path, "r").read()
             return True
         return False
+
+    def _write_version(self):
+        with open(self.version_path, "w") as f:
+            f.write(self.version)
 
     def _cmd_build(self) -> List[str]:
         return []
@@ -148,15 +156,21 @@ class PypiBuild(BaseBuild):
 class PoetryBuild(BaseBuild):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.toml_path = "./pyproject.toml"
 
     def check_type(self) -> bool:
-        toml_path = "./pyproject.toml"
-        if os.path.exists(toml_path):
-            a = toml.load(toml_path)
+        if os.path.exists(self.toml_path):
+            a = toml.load(self.toml_path)
             if "tool" in a:
                 self.version = a["tool"]["poetry"]["version"]
                 return True
         return False
+
+    def _write_version(self):
+        a = toml.load(self.toml_path)
+        a["tool"]["poetry"]["version"] = self.version
+        with open(self.toml_path, "w") as f:
+            toml.dump(a, f)
 
     def _cmd_publish(self) -> List[str]:
         return ["poetry publish"]
@@ -168,26 +182,30 @@ class PoetryBuild(BaseBuild):
 class UVBuild(BaseBuild):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.toml_path = "./pyproject.toml"
 
     def check_type(self) -> bool:
-        toml_path = "./pyproject.toml"
-        if os.path.exists(toml_path):
-            a = toml.load(toml_path)
+        if os.path.exists(self.toml_path):
+            a = toml.load(self.toml_path)
             if "project" in a:
                 self.version = a["project"]["version"]
                 return True
         return False
 
+    def _write_version(self):
+        a = toml.load(self.toml_path)
+        a["project"]["version"] = self.version
+        with open(self.toml_path, "w") as f:
+            toml.dump(a, f)
+
     def _cmd_delete(self) -> List[str]:
         return super()._cmd_delete() + ["rm -rf src/*.egg-info"]
 
     def _cmd_publish(self) -> List[str]:
-        PYPIRC = Path.home() / ".pypirc"
         config = ConfigParser()
-        if PYPIRC.exists():
-            config.read(PYPIRC)
-
-        server = config["distutils"]["index-servers"].strip().split()[0]
+        config.read(f"{os.getcwd()}/.pypirc")
+        server = "pypi" if "distutils" not in config else config["distutils"]["index-servers"].strip().split()[0]
+        print(config)
         settings = config[server]
         opts = []
         if user := settings.get("username"):
