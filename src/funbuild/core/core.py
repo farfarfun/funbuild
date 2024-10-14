@@ -1,11 +1,18 @@
+#!/usr/bin/python3
+
 """
 打包的工具类
 """
 
+from __future__ import annotations
+
 import argparse
 import logging
 import os
+import sys
 import time
+from configparser import ConfigParser
+from pathlib import Path
 from typing import List
 
 import toml
@@ -173,7 +180,30 @@ class UVBuild(BaseBuild):
         return super()._cmd_delete() + ["rm -rf src/*.egg-info"]
 
     def _cmd_publish(self) -> List[str]:
-        return ["uv publish"]
+        PYPIRC = Path.home() / ".pypirc"
+        config = ConfigParser()
+        if PYPIRC.exists():
+            config.read(PYPIRC)
+
+        server = config["distutils"]["index-servers"].strip().split()[0]
+        settings = config[server]
+        opts = []
+        if user := settings.get("username"):
+            password = settings.get("password")
+
+            if "__token__" in user:
+                if password:
+                    opts.append(f"--token={password}")
+            else:
+                opts.append(f"--username={user}")
+                if password:
+                    opts.append(f"--password={password}")
+
+            url = settings.get("repository")
+            if url and opts:
+                opts.append(f"--publish-url={url}")
+        a = ["uv", "publish"] + opts + sys.argv[1:]
+        return [" ".join(a)]
 
     def _cmd_build(self) -> List[str]:
         return ["uv lock", "uv build"]
