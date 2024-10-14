@@ -203,9 +203,11 @@ class UVBuild(BaseBuild):
 
     def _cmd_publish(self) -> List[str]:
         config = ConfigParser()
-        config.read(f"{os.getcwd()}/.pypirc")
-        server = "pypi" if "distutils" not in config else config["distutils"]["index-servers"].strip().split()[0]
-        print(config)
+
+        config.read(f"{os.environ['HOME']}/.pypirc")
+
+        server = config["distutils"]["index-servers"].strip().split()[0]
+        print(config.keys())
         settings = config[server]
         opts = []
         if user := settings.get("username"):

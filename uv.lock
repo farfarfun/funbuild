@@ -3,5 +3,5 @@ requires-python = ">=3.11"
 
 [[package]]
 name = "funbuild"
-version = "1.5.9"
+version = "1.5.12"
 source = { virtual = "." }
