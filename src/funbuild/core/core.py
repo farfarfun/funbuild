@@ -47,7 +47,7 @@ class BaseBuild:
         return []
 
     def _cmd_install(self) -> List[str]:
-        return ["pip install dist/*.whl"]
+        return ["pip install dist/*.whl -q"]
 
     def _cmd_delete(self) -> List[str]:
         return ["rm -rf dist", "rm -rf build", "rm -rf *.egg-info"]
@@ -180,7 +180,7 @@ class UVBuild(BaseBuild):
         return ["uv lock", "uv build"]
 
     def _cmd_install(self) -> List[str]:
-        return ["uv pip install dist/*.whl"]
+        return ["uv pip install dist/*.whl -q"]
 
 
 def get_build() -> BaseBuild:
@@ -195,7 +195,7 @@ def get_build() -> BaseBuild:
 def funbuild():
     builder = get_build()
     if builder is None:
-        raise Exception(f"build error")
+        raise Exception("build error")
 
     parser = argparse.ArgumentParser(prog="PROG")
     subparsers = parser.add_subparsers(help="sub-command help")
