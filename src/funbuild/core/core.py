@@ -188,6 +188,7 @@ def get_build() -> BaseBuild:
     for builder in builders:
         build = builder()
         if build.check_type():
+            print(f"bulider:{str(build)}")
             return build
 
 
