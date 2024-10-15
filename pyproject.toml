@@ -1,9 +1,9 @@
 [project]
 name = "funbuild"
-version = "1.5.8"
+version = "1.5.9"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.6"
+requires-python = ">=3.7"
 dependencies = [ "gitpython>=3.1.43", "ruff>=0.6.9", "toml>=0.10.2", "uv>=0.4.20",]
 
 [project.scripts]
