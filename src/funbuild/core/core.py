@@ -206,7 +206,6 @@ class UVBuild(BaseBuild):
         config.read(f"{os.environ['HOME']}/.pypirc")
 
         server = config["distutils"]["index-servers"].strip().split()[0]
-        print(config.keys())
         settings = config[server]
         opts = []
         if user := settings.get("username"):
@@ -224,7 +223,6 @@ class UVBuild(BaseBuild):
             if url and opts:
                 opts.append(f"--publish-url={url}")
         a = ["uv", "publish"] + opts
-        print(" ".join(a))
         return [" ".join(a)]
 
     def _cmd_build(self) -> List[str]:
