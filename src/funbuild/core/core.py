@@ -60,7 +60,6 @@ class BaseBuild:
         return ["rm -rf dist", "rm -rf build", "rm -rf *.egg-info"]
 
     def funbuild_upgrade(self, args=None, **kwargs):
-        self.__version_upgrade()
         self.version = self.__version_upgrade()
         self._write_version()
 
