@@ -225,7 +225,14 @@ class UVBuild(BaseBuild):
         return [" ".join(a)]
 
     def _cmd_build(self) -> List[str]:
-        return ["uv lock", "uv build -q"]
+        result = ["uv lock", "uv build -q"]
+        for root in ("extbuild", "exts"):
+            if os.path.isdir(root):
+                for file in os.listdir(root):
+                    path = os.path.join(root, file)
+                    if os.path.isdir(path):
+                        result.append(f"uv build -q --directory {path}")
+        return result
 
     def _cmd_install(self) -> List[str]:
         return ["uv pip install dist/*.whl"]
