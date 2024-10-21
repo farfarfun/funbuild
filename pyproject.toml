@@ -1,6 +1,6 @@
 [project]
 name = "funbuild"
-version = "1.5.15"
+version = "1.5.16"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.8"
@@ -11,3 +11,12 @@ email = "farfarfun@qq.com"
 
 [project.scripts]
 funbuild = "funbuild.core:funbuild"
+
+[tool.ruff]
+indent-width = 4
+line-length = 120
+
+[tool.ruff.lint]
+select = [ "I", "E", "W", "B", "F", "UP", "RUF", "PL",]
+fixable = [ "I",]
+ignore = [ "E501", "UP006", "UP007", "PLR0911", "PLR0912", "PLR0913", "PLR0915", "PLR2004",]
