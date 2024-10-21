@@ -180,21 +180,31 @@ class PoetryBuild(BaseBuild):
 class UVBuild(BaseBuild):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.toml_path = "./pyproject.toml"
+        self.toml_paths = ["./pyproject.toml"]
+
+        for root in ("extbuild", "exts"):
+            if os.path.isdir(root):
+                for file in os.listdir(root):
+                    path = os.path.join(root, file)
+                    if os.path.isdir(path):
+                        toml_path = os.path.join(path, "pyproject.toml")
+                        if os.path.exists(toml_path):
+                            self.toml_paths.append(toml_path)
 
     def check_type(self) -> bool:
-        if os.path.exists(self.toml_path):
-            a = toml.load(self.toml_path)
+        if os.path.exists(self.toml_paths[0]):
+            a = toml.load(self.toml_paths[0])
             if "project" in a:
                 self.version = a["project"]["version"]
                 return True
         return False
 
     def _write_version(self):
-        a = toml.load(self.toml_path)
-        a["project"]["version"] = self.version
-        with open(self.toml_path, "w") as f:
-            toml.dump(a, f)
+        for toml_path in self.toml_paths:
+            a = toml.load(toml_path)
+            a["project"]["version"] = self.version
+            with open(toml_path, "w") as f:
+                toml.dump(a, f)
 
     def _cmd_delete(self) -> List[str]:
         return [*super()._cmd_delete(), "rm -rf src/*.egg-info"]
@@ -225,13 +235,9 @@ class UVBuild(BaseBuild):
         return [" ".join(a)]
 
     def _cmd_build(self) -> List[str]:
-        result = ["uv lock", "uv build -q"]
-        for root in ("extbuild", "exts"):
-            if os.path.isdir(root):
-                for file in os.listdir(root):
-                    path = os.path.join(root, file)
-                    if os.path.isdir(path):
-                        result.append(f"uv build -q --directory {path}")
+        result = ["uv lock"]
+        for toml_path in self.toml_paths:
+            result.append(f"uv build -q --directory {os.path.dirname(toml_path)}")
         return result
 
     def _cmd_install(self) -> List[str]:
