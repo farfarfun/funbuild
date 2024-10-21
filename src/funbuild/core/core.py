@@ -24,7 +24,7 @@ class BaseBuild:
         self.repo_path = run_shell("git rev-parse --show-toplevel", printf=False)
         self.name = name or self.repo_path.split("/")[-1]
         self.repo = Repo(self.repo_path)
-        self.git_url = [url for url in self.repo.remote().urls][0]
+        self.git_url = [url for url in self.repo.remote().urls][0]  # noqa: RUF015
         self.version = None
 
     def check_type(self) -> bool:
@@ -64,7 +64,7 @@ class BaseBuild:
         self._write_version()
 
     def funbuild_pull(self, args=None, **kwargs):
-        logging.info("{} pull".format(self.name))
+        logging.info(f"{self.name} pull")
         self.repo.remote().pull()
 
     def funbuild_push(self, args=None, **kwargs):
@@ -105,7 +105,7 @@ class BaseBuild:
         )
 
     def git_clean(self, args=None, **kwargs):
-        logging.info("{} clean".format(self.name))
+        logging.info(f"{self.name} clean")
         run_shell_list(
             [
                 "git rm -r --cached .",
@@ -134,7 +134,7 @@ class PypiBuild(BaseBuild):
 
     def check_type(self):
         if os.path.exists(self.version_path):
-            self.version = open(self.version_path, "r").read()
+            self.version = open(self.version_path, "r").read()  # noqa: UP015
             return True
         return False
 
@@ -197,7 +197,7 @@ class UVBuild(BaseBuild):
             toml.dump(a, f)
 
     def _cmd_delete(self) -> List[str]:
-        return super()._cmd_delete() + ["rm -rf src/*.egg-info"]
+        return [*super()._cmd_delete(), "rm -rf src/*.egg-info"]
 
     def _cmd_publish(self) -> List[str]:
         config = ConfigParser()
@@ -221,7 +221,7 @@ class UVBuild(BaseBuild):
             url = settings.get("repository")
             if url and opts:
                 opts.append(f"--publish-url={url}")
-        a = ["uv", "publish"] + opts
+        a = ["uv", "publish", *opts]
         return [" ".join(a)]
 
     def _cmd_build(self) -> List[str]:
@@ -242,7 +242,7 @@ def get_build() -> BaseBuild:
 def funbuild():
     builder = get_build()
     if builder is None:
-        raise Exception(f"build error")
+        raise Exception("build error")
 
     parser = argparse.ArgumentParser(prog="PROG")
     subparsers = parser.add_subparsers(help="sub-command help")

@@ -20,7 +20,7 @@ class ServerManage:
 [include]
 files = {self.conf_dir}/*.ini
         """
-        data = open(self.manage_conf_path, "r").read()
+        data = open(self.manage_conf_path, "r").read()  # noqa: UP015
         data += append_data
         with open(self.manage_conf_path, "w") as f:
             f.write(data)
@@ -34,7 +34,7 @@ files = {self.conf_dir}/*.ini
         default_logfile = f"/fundata/logs/funbuild/{server_name}.log"
         config = f"""[program:{server_name}]
 directory = {directory}
-command = {command} 
+command = {command}
 autostart = true
 autorestart = true
 user = {user}
