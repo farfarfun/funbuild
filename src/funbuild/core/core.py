@@ -9,22 +9,22 @@ from __future__ import annotations
 import argparse
 import logging
 import os
-import time
 from configparser import ConfigParser
+from datetime import datetime
 from typing import List
 
 import toml
-from git import Repo
+from funutil import getLogger
 
 from funbuild.shell import run_shell, run_shell_list
+
+logger = getLogger("funbuild")
 
 
 class BaseBuild:
     def __init__(self, name=None):
         self.repo_path = run_shell("git rev-parse --show-toplevel", printf=False)
         self.name = name or self.repo_path.split("/")[-1]
-        self.repo = Repo(self.repo_path)
-        self.git_url = [url for url in self.repo.remote().urls][0]  # noqa: RUF015
         self.version = None
 
     def check_type(self) -> bool:
@@ -64,8 +64,8 @@ class BaseBuild:
         self._write_version()
 
     def funbuild_pull(self, args=None, **kwargs):
-        logging.info(f"{self.name} pull")
-        self.repo.remote().pull()
+        logger.info(f"{self.name} pull")
+        run_shell_list(["git pull"])
 
     def funbuild_push(self, args=None, **kwargs):
         logging.info(f"{self.name} push")
@@ -116,15 +116,12 @@ class BaseBuild:
         )
 
     def git_tags(self, args=None, **kwargs):
-        self.repo.create_tag(time.strftime("%Y%m%d%H%M%S", time.localtime()))
-        self.repo.remote().push()
-        self.repo.remote().push(self.repo.tags)
-
-    def git_tags_clear(self, args=None, **kwargs):
-        for tag in self.repo.tags:
-            self.repo.delete_tag(tag)
-        self.repo.remote().push()
-        self.repo.remote().push(self.repo.tags)
+        run_shell_list(
+            [
+                f"git tag {datetime.now().strftime('%Y%m%d%H%M%S')}",
+                "git push --tags",
+            ]
+        )
 
 
 class PypiBuild(BaseBuild):
