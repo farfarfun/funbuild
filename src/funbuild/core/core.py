@@ -119,6 +119,7 @@ class BaseBuild:
         run_shell_list(
             [
                 f"git tag {datetime.now().strftime('%Y%m%d%H%M%S')}",
+                f"git tag {self.version}",
                 "git push --tags",
             ]
         )
