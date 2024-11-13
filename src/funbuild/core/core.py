@@ -7,10 +7,8 @@
 from __future__ import annotations
 
 import argparse
-import logging
 import os
 from configparser import ConfigParser
-from datetime import datetime
 from typing import List
 
 import toml
@@ -68,15 +66,15 @@ class BaseBuild:
         run_shell_list(["git pull"])
 
     def funbuild_push(self, args=None, **kwargs):
-        logging.info(f"{self.name} push")
+        logger.info(f"{self.name} push")
         run_shell_list(["git add -A", 'git commit -a -m "add"', "git push"])
 
     def funbuild_install(self, args=None, **kwargs):
-        logging.info(f"{self.name} install")
+        logger.info(f"{self.name} install")
         run_shell_list(self._cmd_build() + self._cmd_install() + self._cmd_delete())
 
     def funbuild_build(self, args=None, **kwargs):
-        logging.info(f"{self.name} build")
+        logger.info(f"{self.name} build")
         self.funbuild_pull()
         self.funbuild_upgrade()
         run_shell_list(
@@ -86,7 +84,7 @@ class BaseBuild:
         self.git_tags()
 
     def funbuild_clean_history(self, args=None, **kwargs):
-        logging.info(f"{self.name} clean history")
+        logger.info(f"{self.name} clean history")
         run_shell_list(
             [
                 "git tag -d $(git tag -l) || true",  # 删除本地 tag
@@ -105,7 +103,7 @@ class BaseBuild:
         )
 
     def git_clean(self, args=None, **kwargs):
-        logging.info(f"{self.name} clean")
+        logger.info(f"{self.name} clean")
         run_shell_list(
             [
                 "git rm -r --cached .",
@@ -118,8 +116,7 @@ class BaseBuild:
     def git_tags(self, args=None, **kwargs):
         run_shell_list(
             [
-                f"git tag {datetime.now().strftime('%Y%m%d%H%M%S')}",
-                f"git tag {self.version}",
+                f"git tag v{self.version}",
                 "git push --tags",
             ]
         )
