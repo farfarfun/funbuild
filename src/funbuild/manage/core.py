@@ -1,7 +1,11 @@
 import argparse
 import os
 
+from funutil import getLogger
+
 from funbuild.shell import run_shell
+
+logger = getLogger("funbuild")
 
 
 class ServerManage:
@@ -27,7 +31,7 @@ files = {self.conf_dir}/*.ini
 
     def start(self):
         cmd = f"supervisord -c {self.manage_conf_path}"
-        print(cmd)
+        logger.info(cmd)
         run_shell(cmd)
 
     def add_job(self, server_name, directory, command, user="bingtao", stdout_logfile=None):
@@ -68,7 +72,7 @@ class BaseServer:
         run_shell(f"supervisorctl -c {self.manage.manage_conf_path} restart {self.server_name}")
 
     def run(self, cmd):
-        print(cmd)
+        logger.info(cmd)
         run_shell(cmd)
 
     def parse_and_run(self):
