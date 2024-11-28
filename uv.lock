@@ -3,7 +3,7 @@ requires-python = ">=3.8"
 
 [[package]]
 name = "funbuild"
-version = "1.5.42"
+version = "1.5.43"
 source = { virtual = "." }
 dependencies = [
     { name = "ruff" },
@@ -15,7 +15,7 @@ dependencies = [
 requires-dist = [
     { name = "ruff", specifier = ">=0.8.0" },
     { name = "toml", specifier = ">=0.10.2" },
-    { name = "uv", specifier = ">=0.5.5" },
+    { name = "uv", specifier = "<=0.5.5" },
 ]
 
 [[package]]
