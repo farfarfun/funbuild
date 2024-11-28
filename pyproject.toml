@@ -1,7 +1,5 @@
 [project]
 name = "funbuild"
-license = "MIT OR Apache-2.0"
-license-files = [ "LICENSE*",]
 version = "1.5.42"
 description = "Add your description here"
 readme = "README.md"
@@ -11,6 +9,9 @@ keywords = [ "build", "requirements", "packaging", "uv",]
 [[project.authors]]
 name = "niuliangtao"
 email = "farfarfun@qq.com"
+
+[project.license]
+text = "MIT License"
 
 [project.scripts]
 funbuild = "funbuild.core:funbuild"
