@@ -1,7 +1,6 @@
 [project]
 name = "funbuild"
-version = "1.5.44"
-license = "MIT"
+version = "1.5.42"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.8"
@@ -10,6 +9,9 @@ keywords = [ "build", "requirements", "packaging", "uv",]
 [[project.authors]]
 name = "niuliangtao"
 email = "farfarfun@qq.com"
+
+[project.license]
+text = "MIT"
 
 [project.scripts]
 funbuild = "funbuild.core:funbuild"
