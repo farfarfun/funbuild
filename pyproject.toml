@@ -1,12 +1,15 @@
 [project]
 name = "funbuild"
-version = "1.5.34"
+version = "1.5.35"
 description = "Add your description here"
 readme = "README.md"
+license = "MIT OR Apache-2.0"
+license-files = [ "LICENSE-MIT", "LICENSE-APACHE",]
 requires-python = ">=3.8"
 dependencies = [ "ruff>=0.8.0", "toml>=0.10.2", "uv>=0.5.5",]
+keywords = [ "build", "requirements", "packaging", "uv",]
 [[project.authors]]
-name = "farfun"
+name = "niuliangtao"
 email = "farfarfun@qq.com"
 
 [project.scripts]
