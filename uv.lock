@@ -3,7 +3,7 @@ requires-python = ">=3.8"
 
 [[package]]
 name = "funbuild"
-version = "1.5.38"
+version = "1.5.39"
 source = { virtual = "." }
 dependencies = [
     { name = "ruff" },
