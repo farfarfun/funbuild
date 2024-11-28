@@ -1,6 +1,6 @@
 [project]
 name = "funbuild"
-version = "1.5.40"
+version = "1.5.41"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.8"
@@ -12,6 +12,7 @@ email = "farfarfun@qq.com"
 
 [project.license]
 text = "MIT License"
+file = "LICENSE"
 
 [project.scripts]
 funbuild = "funbuild.core:funbuild"
