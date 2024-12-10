@@ -1,6 +1,6 @@
 [project]
 name = "funbuild"
-version = "1.5.48"
+version = "1.5.49"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.8"
@@ -19,6 +19,9 @@ funbuild = "funbuild.core:funbuild"
 [tool.ruff]
 indent-width = 4
 line-length = 120
+
+[tool.setuptools]
+license-files = []
 
 [tool.ruff.lint]
 select = [ "I", "E", "W", "B", "F", "UP", "RUF", "PL",]
