@@ -12,11 +12,20 @@ from configparser import ConfigParser
 from typing import List
 
 import toml
+from funbuild.shell import run_shell, run_shell_list
 from funutil import getLogger
 
-from funbuild.shell import run_shell, run_shell_list
-
 logger = getLogger("funbuild")
+
+
+def deep_create(data, *args, key, value):
+    res = data
+    for arg in args:
+        if arg not in data:
+            data[arg] = {}
+        data = data[arg]
+    data[key] = value
+    return res
 
 
 class BaseBuild:
@@ -196,10 +205,22 @@ class UVBuild(BaseBuild):
 
     def _write_version(self):
         for toml_path in self.toml_paths:
-            a = toml.load(toml_path)
-            a["project"]["version"] = self.version
+            config = toml.load(toml_path)
+            try:
+                self.config_format(config)
+            except Exception as e:
+                logger.error(f"format error:{e}")
+            config["project"]["version"] = self.version
             with open(toml_path, "w") as f:
-                toml.dump(a, f)
+                toml.dump(config, f)
+
+    def config_format(self, config):
+        if not self.name.startswith("fun"):
+            return
+        deep_create(config, "tool", "setuptools", key="license-files", value=[])
+        deep_create(config, "project", key="authors", value=[{"name": "niuliangtao", "email": "farfarfun@qq.com"}])
+        if "Add your description here" in config["project"]["description"]:
+            deep_create(config, "project", key="description", value=f"{self.name}")
 
     def _cmd_delete(self) -> List[str]:
         return [*super()._cmd_delete(), "rm -rf src/*.egg-info"]
