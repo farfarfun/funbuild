@@ -1,6 +1,6 @@
 [project]
 name = "funbuild"
-version = "1.5.64"
+version = "1.5.65"
 description = "funbuild"
 readme = "README.md"
 requires-python = ">=3.8"
@@ -24,7 +24,7 @@ line-length = 120
 license-files = []
 
 [tool.uv]
-package = false
+package = true
 
 [tool.ruff.lint]
 select = [ "I", "E", "W", "B", "F", "UP", "RUF", "PL",]
