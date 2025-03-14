@@ -7,7 +7,7 @@ from typing import List
 
 import click
 import toml
-from funutil import getLogger
+from funutil import deep_get, getLogger
 
 from funbuild.shell import run_shell, run_shell_list
 
@@ -268,6 +268,9 @@ class UVBuild(BaseBuild):
         config.read(f"{os.environ['HOME']}/.pypirc")
 
         server = config["distutils"]["index-servers"].strip().split()[0]
+        if os.path.exists(self.toml_paths[0]):
+            a = toml.load(self.toml_paths[0])
+            server = deep_get(a, "tool", "uv", "index", "name") or server
         settings = config[server]
         opts = []
         if user := settings.get("username"):
