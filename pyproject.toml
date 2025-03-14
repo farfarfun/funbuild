@@ -1,6 +1,6 @@
 [project]
 name = "funbuild"
-version = "1.5.69"
+version = "1.5.70"
 description = "funbuild"
 readme = "README.md"
 requires-python = ">=3.8"
@@ -27,6 +27,7 @@ license-files = []
 package = true
 [[tool.uv.index]]
 name = "packages-pypi"
+url = "https://packages.aliyun.com/5fc5eb115dbd287006145e5f/pypi/funpy"
 
 [tool.ruff.lint]
 select = [ "I", "E", "W", "B", "F", "UP", "RUF", "PL",]
