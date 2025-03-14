@@ -271,7 +271,7 @@ class UVBuild(BaseBuild):
         if os.path.exists(self.toml_paths[0]):
             a = toml.load(self.toml_paths[0])
             server = deep_get(a, "tool", "uv", "index", 0, "name") or server
-        
+
         settings = config[server]
         opts = []
         if user := settings.get("username"):
@@ -297,7 +297,7 @@ class UVBuild(BaseBuild):
         if self.name.startswith("fun"):
             result.append("uv run ruff format")
         for toml_path in self.toml_paths:
-            result.append(f"uv build -q --directory {os.path.dirname(toml_path)}")
+            result.append(f"uv build -q --wheel --directory {os.path.dirname(toml_path)}")
         return result
 
     def _cmd_install(self) -> List[str]:
