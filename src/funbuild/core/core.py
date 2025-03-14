@@ -271,7 +271,7 @@ class UVBuild(BaseBuild):
         if os.path.exists(self.toml_paths[0]):
             a = toml.load(self.toml_paths[0])
             server = deep_get(a, "tool", "uv", "index", 0, "name") or server
-        print(server)
+        
         settings = config[server]
         opts = []
         if user := settings.get("username"):
