@@ -283,7 +283,7 @@ class UVBuild(BaseBuild):
             else:
                 opts.append(f"--username={user}")
                 if password:
-                    opts.append(f"--password={password}")
+                    opts.append(f"--password='{password}'")
 
             url = settings.get("repository")
             if url and opts:
