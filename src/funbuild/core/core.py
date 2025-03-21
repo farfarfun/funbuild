@@ -293,7 +293,7 @@ class UVBuild(BaseBuild):
 
     def _cmd_build(self) -> List[str]:
         """构建命令"""
-        result = ["uv sync -U", "uv lock"]
+        result = ["uv sync --prerelease=allow -U", "uv lock"]
         if self.name.startswith("fun"):
             result.append("uv run ruff format")
         for toml_path in self.toml_paths:
