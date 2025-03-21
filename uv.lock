@@ -25,7 +25,7 @@ wheels = [
 
 [[package]]
 name = "funbuild"
-version = "1.5.81"
+version = "1.5.82"
 source = { editable = "." }
 dependencies = [
     { name = "click" },
