@@ -295,7 +295,7 @@ class UVBuild(BaseBuild):
             "project",
             key="maintainers",
             value=[
-                {"name": "niuliangtao", "email": "niuliangtao@qq.com"},
+                {"name": "牛哥", "email": "niuliangtao@qq.com"},
                 {"name": "farfarfun", "email": "farfarfun@qq.com"},
             ],
         )
