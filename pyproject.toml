@@ -1,0 +1,49 @@
+[project]
+name = "funbuild"
+version = "1.5.127"
+description = "funbuild"
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [ "uv>=0.6.12", "ruff>=0.11.4", "toml>=0.10.2", "typer-slim>=0.15.2",]
+keywords = [ "build", "requirements", "packaging", "uv",]
+[[project.authors]]
+name = "niuliangtao"
+email = "niuliangtao@qq.com"
+
+[[project.authors]]
+name = "farfarfun"
+email = "farfarfun@qq.com"
+
+[[project.maintainers]]
+name = "niuliangtao"
+email = "niuliangtao@qq.com"
+
+[[project.maintainers]]
+name = "farfarfun"
+email = "farfarfun@qq.com"
+
+[project.license]
+text = "MIT"
+
+[project.scripts]
+funbuild = "funbuild.core:funbuild"
+
+[project.urls]
+Organization = "https://github.com/farfarfun"
+Repository = "https://github.com/farfarfun/funbuild"
+Releases = "https://github.com/farfarfun/funbuild/releases"
+
+[tool.ruff]
+indent-width = 4
+line-length = 120
+
+[tool.setuptools]
+license-files = []
+
+[tool.uv]
+package = true
+
+[tool.ruff.lint]
+select = [ "I", "E", "W", "B", "F", "UP", "RUF", "PL",]
+fixable = [ "I",]
+ignore = [ "E501", "UP006", "UP007", "PLR0911", "PLR0912", "PLR0913", "PLR0915", "PLR2004",]
