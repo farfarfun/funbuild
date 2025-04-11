@@ -362,13 +362,46 @@ class UVBuild(BaseBuild):
         return ["uv pip install dist/*.whl"]
 
 
+class EmptyBuild(BaseBuild):
+    """UV构建类"""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def check_type(self) -> bool:
+        """检查是否为UV项目"""
+        return True
+
+    def _write_version(self):
+        pass
+
+    def config_format(self, config):
+        pass
+
+    def _cmd_delete(self) -> List[str]:
+        """清理命令"""
+        return []
+
+    def _cmd_publish(self) -> List[str]:
+        return []
+
+    def _cmd_build(self) -> List[str]:
+        """构建命令"""
+        return []
+
+    def _cmd_install(self) -> List[str]:
+        """安装命令"""
+        return []
+
+
 def get_build() -> Union[UVBuild, PoetryBuild, PypiBuild]:
     """获取合适的构建类"""
-    builders = [UVBuild, PoetryBuild, PypiBuild]
+    builders = [UVBuild, PoetryBuild, PypiBuild, EmptyBuild]
     for builder in builders:
         build = builder()
         if build.check_type():
             return build
+
     raise Exception("未找到合适的构建类")
 
 
