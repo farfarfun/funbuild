@@ -1,6 +1,5 @@
 import subprocess
 import sys
-from typing import List
 
 
 def run_shell(command: str, printf=True) -> str:
@@ -20,7 +19,7 @@ def run_shell(command: str, printf=True) -> str:
                 bufsize=1,
             )
             cmd.communicate()
-            return cmd.returncode
+            return str(cmd.returncode)
         except Exception as e:
             return f"run shell error:{e}"
     else:
@@ -33,11 +32,9 @@ def run_shell(command: str, printf=True) -> str:
             return f"run shell error:{e}"
 
 
-def run_shell_list(command_list: List[str], printf=True) -> str:
+def run_shell_list(command_list: list[str], printf=True) -> str:
     """
     批量执行shell命令
     """
-    # for shell in shell_list:
-    #    run_shell(shell, printf=printf)
     command = " && ".join(command_list)
     return run_shell(command, printf=printf)

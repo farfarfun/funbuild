@@ -5,7 +5,7 @@ import os
 import traceback
 import typing
 from configparser import ConfigParser
-from typing import List, Union
+from typing import Union
 
 import toml
 import typer
@@ -80,19 +80,19 @@ class BaseBuild:
 
         return "{}.{}.{}".format(*version1)
 
-    def _cmd_build(self) -> List[str]:
+    def _cmd_build(self) -> list[str]:
         """构建命令"""
         return []
 
-    def _cmd_publish(self) -> List[str]:
+    def _cmd_publish(self) -> list[str]:
         """发布命令"""
         return []
 
-    def _cmd_install(self) -> List[str]:
+    def _cmd_install(self) -> list[str]:
         """安装命令"""
         return ["pip install dist/*.whl --force-reinstall"]
 
-    def _cmd_delete(self) -> List[str]:
+    def _cmd_delete(self) -> list[str]:
         """清理命令"""
         return ["rm -rf dist", "rm -rf build", "rm -rf *.egg-info", "rm -rf uv.lock"]
 
@@ -194,11 +194,11 @@ class PypiBuild(BaseBuild):
         with open(self.version_path, "w") as f:
             f.write(self.version)
 
-    def _cmd_build(self) -> List[str]:
+    def _cmd_build(self) -> list[str]:
         """构建命令"""
         return []
 
-    def _cmd_install(self) -> List[str]:
+    def _cmd_install(self) -> list[str]:
         """安装命令"""
         return [
             "pip install dist/*.whl",
@@ -228,11 +228,11 @@ class PoetryBuild(BaseBuild):
         with open(self.toml_path, "w") as f:
             toml.dump(a, f)
 
-    def _cmd_publish(self) -> List[str]:
+    def _cmd_publish(self) -> list[str]:
         """发布命令"""
         return ["poetry publish"]
 
-    def _cmd_build(self) -> List[str]:
+    def _cmd_build(self) -> list[str]:
         """构建命令"""
         return ["poetry lock", "poetry build"]
 
@@ -312,11 +312,11 @@ class UVBuild(BaseBuild):
         if "Add your description here" in config["project"]["description"]:
             deep_create(config, "project", key="description", value=f"{self.name}")
 
-    def _cmd_delete(self) -> List[str]:
+    def _cmd_delete(self) -> list[str]:
         """清理命令"""
         return [*super()._cmd_delete(), "rm -rf src/*.egg-info"]
 
-    def _cmd_publish(self) -> List[str]:
+    def _cmd_publish(self) -> list[str]:
         """发布命令"""
         config = ConfigParser()
 
@@ -346,7 +346,7 @@ class UVBuild(BaseBuild):
         a = ["uv", "publish", *opts]
         return [" ".join(a)]
 
-    def _cmd_build(self) -> List[str]:
+    def _cmd_build(self) -> list[str]:
         """构建命令"""
         result = ["uv sync --prerelease=allow -U", "uv lock --prerelease=allow"]
         if self.name.startswith("fun"):
@@ -357,7 +357,7 @@ class UVBuild(BaseBuild):
             result.append(f"uv build -q --wheel --prerelease=allow --directory {os.path.dirname(toml_path)}")
         return result
 
-    def _cmd_install(self) -> List[str]:
+    def _cmd_install(self) -> list[str]:
         """安装命令"""
         return ["uv pip install dist/*.whl"]
 
@@ -378,18 +378,18 @@ class EmptyBuild(BaseBuild):
     def config_format(self, config):
         pass
 
-    def _cmd_delete(self) -> List[str]:
+    def _cmd_delete(self) -> list[str]:
         """清理命令"""
         return []
 
-    def _cmd_publish(self) -> List[str]:
+    def _cmd_publish(self) -> list[str]:
         return []
 
-    def _cmd_build(self) -> List[str]:
+    def _cmd_build(self) -> list[str]:
         """构建命令"""
         return []
 
-    def _cmd_install(self) -> List[str]:
+    def _cmd_install(self) -> list[str]:
         """安装命令"""
         return []
 
