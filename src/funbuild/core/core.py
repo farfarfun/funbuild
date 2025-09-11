@@ -350,9 +350,9 @@ class UVBuild(BaseBuild):
         """构建命令"""
         result = ["uv sync --prerelease=allow -U", "uv lock --prerelease=allow"]
         if self.name.startswith("fun"):
-            # result.append("uv run ruff clean")
-            result.append("uv run ruff format")
-            result.append("uv run ruff clean")
+            # result.append("uvx ruff clean")
+            result.append("uvx ruff format")
+            result.append("uvx ruff clean")
         for toml_path in self.toml_paths:
             result.append(f"uv build -q --wheel --prerelease=allow --directory {os.path.dirname(toml_path)}")
         return result
