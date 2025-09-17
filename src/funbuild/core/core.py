@@ -348,7 +348,10 @@ class UVBuild(BaseBuild):
 
     def _cmd_build(self) -> list[str]:
         """构建命令"""
-        result = ["uv sync --prerelease=allow -U", "uv lock --prerelease=allow"]
+        result = [
+            # "uv sync --prerelease=allow -U",
+            "uv lock --prerelease=allow"
+        ]
         if self.name.startswith("fun"):
             # result.append("uvx ruff clean")
             result.append("uvx ruff format")
