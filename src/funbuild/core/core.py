@@ -94,7 +94,15 @@ class BaseBuild:
 
     def _cmd_delete(self) -> list[str]:
         """清理命令"""
-        return ["rm -rf dist", "rm -rf build", "rm -rf *.egg-info", "rm -rf uv.lock"]
+        return [
+            "rm -rf dist",
+            "rm -rf extbuild/*/dist",
+            "rm -rf build",
+            "rm -rf extbuild/*/build",
+            "rm -rf *.egg-info",
+            "rm -rf extbuild/*/src/*.egg-info",
+            "rm -rf uv.lock",
+        ]
 
     def upgrade(self, *args, **kwargs):
         """升级版本"""
@@ -314,7 +322,12 @@ class UVBuild(BaseBuild):
 
     def _cmd_delete(self) -> list[str]:
         """清理命令"""
-        return [*super()._cmd_delete(), "rm -rf src/*.egg-info"]
+        return [
+            *super()._cmd_delete(),
+            "rm -rf src/*.egg-info",
+            "rm -rf extbuild/*/src/*.egg-info",
+            "rm -rf exts/*/src/*.egg-info",
+        ]
 
     def _cmd_publish(self) -> list[str]:
         """发布命令"""
