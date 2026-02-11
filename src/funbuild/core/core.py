@@ -9,7 +9,8 @@ from typing import Union
 
 import toml
 import typer
-from funutil import deep_get, getLogger
+from funlog import getLogger
+from funutil import deep_get
 
 from funbuild.shell import run_shell, run_shell_list
 

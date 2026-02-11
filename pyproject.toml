@@ -1,17 +1,13 @@
 [project]
 name = "funbuild"
-version = "1.6.10"
+version = "1.6.11"
 description = "funbuild"
 readme = "README.md"
 requires-python = ">=3.9"
-dependencies = [ "uv>=0.8.4", "ruff>=0.12.7", "toml>=0.10.2", "typer-slim", "funutil>=1.0.53", "gcop>=1.7.3",]
+dependencies = [ "uv>=0.8.4", "ruff>=0.12.7", "toml>=0.10.2", "typer-slim", "gcop>=1.7.3", "funlog-tau>=1.0.1",]
 keywords = [ "build", "requirements", "packaging", "uv",]
 [[project.authors]]
-name = "牛哥"
-email = "niuliangtao@qq.com"
-
-[[project.authors]]
-name = "farfarfun"
+name = "niuliangtao"
 email = "farfarfun@qq.com"
 
 [[project.maintainers]]

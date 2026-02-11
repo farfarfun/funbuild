@@ -1,7 +1,7 @@
 import argparse
 import os
 
-from funutil import getLogger
+from funlog import getLogger
 
 from funbuild.shell import run_shell
 
