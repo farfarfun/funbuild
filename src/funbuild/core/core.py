@@ -9,8 +9,7 @@ from typing import Union
 
 import toml
 import typer
-from funlog import getLogger
-from funutil import deep_get
+from nltlog import getLogger
 
 from funbuild.shell import run_shell, run_shell_list
 
@@ -35,6 +34,21 @@ def aigc_commit_message(default_message: str = "add") -> str:
         traceback.print_exc()
         logger.error(f"aigc_commit_message with error:{e}")
         return default_message
+
+
+def deep_get(data: dict, *args):
+    if not data:
+        return None
+    for arg in args:
+        if isinstance(arg, int) or arg in data:
+            try:
+                data = data[arg]
+            except Exception as e:
+                print(e)
+                return None
+        else:
+            return None
+    return data
 
 
 def deep_create(data, *args, key, value):
@@ -339,6 +353,7 @@ class UVBuild(BaseBuild):
         server = config["distutils"]["index-servers"].strip().split()[0]
         if os.path.exists(self.toml_paths[0]):
             a = toml.load(self.toml_paths[0])
+            logger.info(a)
             server = deep_get(a, "tool", "uv", "index", 0, "name") or server
 
         settings = config[server]
