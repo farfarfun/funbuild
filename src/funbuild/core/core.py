@@ -351,12 +351,10 @@ class UVBuild(BaseBuild):
         config.read(f"{os.environ['HOME']}/.pypirc")
 
         server = config["distutils"]["index-servers"].strip().split()[0]
-        logger.info(os.path.exists(self.toml_paths[0]))
         if os.path.exists(self.toml_paths[0]):
             a = toml.load(self.toml_paths[0])
-            logger.info(a)
             server = deep_get(a, "tool", "uv", "index", 0, "name") or server
-
+        logger.info(f"public server: {server}")
         settings = config[server]
         opts = []
         if user := settings.get("username"):
