@@ -1,10 +1,10 @@
 [project]
 name = "funbuild"
-version = "1.6.21"
+version = "1.6.22"
 description = "funbuild"
 readme = "README.md"
 requires-python = ">=3.9"
-dependencies = [ "uv>=0.8.4", "ruff>=0.12.7", "toml>=0.10.2", "typer-slim", "nltlog>=1.0.11", "funshell>=1.0.2","gcop>=1.7.3",]
+dependencies = [ "uv>=0.8.4", "ruff>=0.12.7", "toml>=0.10.2", "typer-slim", "nltlog>=1.0.11", "funshell>=1.0.2", "gcop>=1.7.3",]
 keywords = [ "build", "requirements", "packaging", "uv",]
 [[project.authors]]
 name = "牛哥"
@@ -21,9 +21,6 @@ email = "niuliangtao@qq.com"
 [[project.maintainers]]
 name = "farfarfun"
 email = "farfarfun@qq.com"
-
-[project.optional-dependencies]
-build = [ "gcop>=1.7.3",]
 
 [project.license]
 text = "MIT"
