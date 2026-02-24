@@ -11,7 +11,7 @@ import toml
 import typer
 from nltlog import getLogger
 
-from funbuild.shell import run_shell, run_shell_list
+from funshell import run_shell, run_shell_list
 
 logger = getLogger("funbuild")
 
