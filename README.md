@@ -14,7 +14,7 @@ funbuild 是一个现代化的 Python 项目构建和管理工具，旨在简化
 - 🔄 **自动化版本管理**: 智能版本升级和发布流程
 - 📦 **依赖管理**: 自动处理项目依赖和环境配置
 - 🔧 **Git 集成**: 内置 Git 操作，包括拉取、推送和历史清理
-- 🤖 **AI 提交信息**: 集成 gcop 自动生成智能提交信息
+- 🤖 **AI 提交信息**: 集成 opencommit 自动生成智能提交信息
 - 🧹 **项目清理**: 自动清理缓存、构建文件和历史记录
 - 📋 **标签管理**: 自动创建和管理 Git 标签
 - 🎯 **命令行界面**: 简洁易用的 CLI 工具
@@ -68,6 +68,10 @@ funbuild push --message "您的提交信息"
 # 使用 AI 自动生成提交信息
 funbuild push
 ```
+
+> `funbuild push` 的 AI 提交依赖 opencommit CLI（`oco` 命令），请先按官方文档安装并配置：
+> 1) `npm install -g opencommit`
+> 2) `oco config set OCO_API_KEY=<your_api_key>`
 
 #### 项目构建
 
@@ -138,7 +142,7 @@ funbuild 集成了以下优秀的工具：
 
 - **[uv](https://github.com/astral-sh/uv)**: 现代 Python 包管理器
 - **[ruff](https://github.com/astral-sh/ruff)**: 快速 Python 代码检查和格式化工具
-- **[gcop](https://github.com/farfarfun/gcop)**: AI 驱动的 Git 提交信息生成器
+- **[opencommit](https://github.com/di-sukharev/opencommit)**: AI 驱动的 Git 提交信息生成器
 - **[typer](https://typer.tiangolo.com/)**: 现代 CLI 应用框架
 
 ## 📁 项目结构

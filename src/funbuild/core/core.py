@@ -16,24 +16,22 @@ from funshell import run_shell, run_shell_list
 logger = getLogger("funbuild")
 
 
-def aigc_commit_message(default_message: str = "add") -> str:
+def opencommit_commit(default_message: str = "add") -> bool:
+    """使用 opencommit CLI 自动提交，成功返回 True。"""
     try:
-        from gcop.__main__ import CommitMessage, generate_commit_message, get_git_diff
-
-        diff: str = get_git_diff("--staged")
+        diff: str = run_shell("git diff --staged", printf=False)
         if not diff:
             logger.warning("No staged changes")
-            return default_message
-        logger.debug(f"[Code diff] \n{diff}")
-        logger.debug("[On Ready] Generating commit message...")
-        commit_messages: CommitMessage = generate_commit_message(diff)
-        logger.debug(f"[Thought] {commit_messages.thought}")
-        logger.info(f"[Generated commit message]\n{commit_messages.content}")
-        return commit_messages.content
+            return False
+
+        logger.debug("[On Ready] Generating commit message by opencommit...")
+        run_shell("oco --yes")
+        return True
     except Exception as e:
         traceback.print_exc()
-        logger.error(f"aigc_commit_message with error:{e}")
-        return default_message
+        logger.error(f"opencommit commit failed: {e}")
+        logger.info(f"fallback to default commit message: {default_message}")
+        return False
 
 
 def deep_get(data: dict, *args):
@@ -133,12 +131,11 @@ class BaseBuild:
         """推送代码"""
         logger.info(f"{self.name} push")
         run_shell_list(["git add -A"])
-        run_shell_list(
-            [
-                f'git commit -a -m "{aigc_commit_message(default_message=message)}"',
-                "git push",
-            ]
-        )
+        if opencommit_commit(default_message=message):
+            run_shell_list(["git push"])
+            return
+
+        run_shell_list([f'git commit -a -m "{message}"', "git push"])
 
     def install(self, *args, **kwargs):
         """安装包"""
