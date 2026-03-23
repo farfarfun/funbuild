@@ -13,7 +13,7 @@ from nltlog import getLogger
 
 from funshell import run_shell, run_shell_list
 
-logger = getLogger("funbuild")
+logger = getLogger("nltbuild")
 
 
 def opencommit_commit(default_message: str = "add") -> bool:
@@ -433,7 +433,7 @@ def get_build() -> Union[UVBuild, PoetryBuild, PypiBuild]:
     raise Exception("未找到合适的构建类")
 
 
-def funbuild():
+def nltbuild():
     """主入口函数"""
     builder = get_build()
     cli = typer.Typer(help='build tool for "fun"')
