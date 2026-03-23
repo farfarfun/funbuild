@@ -1,7 +1,7 @@
 [project]
-name = "funbuild"
-version = "1.6.30"
-description = "funbuild"
+name = "nltbuild"
+version = "1.6.31"
+description = "nltbuild"
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [ "uv>=0.8.4", "ruff>=0.12.7", "toml>=0.10.2", "typer-slim", "nltlog>=1.0.11", "funshell>=1.0.2",]
@@ -26,7 +26,7 @@ email = "farfarfun@qq.com"
 text = "MIT"
 
 [project.scripts]
-nltbuild = "funbuild.core:nltbuild"
+nltbuild = "nltbuild.core:nltbuild"
 
 [project.urls]
 Organization = "https://github.com/farfarfun"
