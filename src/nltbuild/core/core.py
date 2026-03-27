@@ -24,8 +24,7 @@ def opencommit_commit(default_message: str = "add") -> bool:
             logger.warning("No staged changes")
             return False
 
-        logger.debug("[On Ready] Generating commit message by opencommit...")
-        run_shell("oco --yes")
+        run_shell("aicommits --yes")
         return True
     except Exception as e:
         traceback.print_exc()
@@ -131,11 +130,9 @@ class BaseBuild:
         """推送代码"""
         logger.info(f"{self.name} push")
         run_shell_list(["git add -A"])
-        if opencommit_commit(default_message=message):
-            run_shell_list(["git push"])
-            return
-
-        run_shell_list([f'git commit -a -m "{message}"', "git push"])
+        run_shell_list(['aicommits --yes'])
+        run_shell_list(["git push"])
+        #run_shell_list([f'git commit -a -m "{message}"', "git push"])
 
     def install(self, *args, **kwargs):
         """安装包"""
