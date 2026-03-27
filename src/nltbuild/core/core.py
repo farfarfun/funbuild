@@ -130,7 +130,7 @@ class BaseBuild:
         """推送代码"""
         logger.info(f"{self.name} push")
         run_shell_list(["git add -A"])
-        run_shell_list(['aicommits --yes -p "Write commit messages in Chinese"'])
+        run_shell_list(['aicommits --yes'])
         run_shell_list(["git push"])
         #run_shell_list([f'git commit -a -m "{message}"', "git push"])
 
