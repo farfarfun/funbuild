@@ -1,7 +1,9 @@
 #!/usr/bin/python3
 
 
+import json
 import os
+import shlex
 import traceback
 import typing
 from configparser import ConfigParser
@@ -9,15 +11,14 @@ from typing import Union
 
 import toml
 import typer
-from nltlog import getLogger
-
 from funshell import run_shell, run_shell_list
+from nltlog import getLogger
 
 logger = getLogger("nltbuild")
 
 
 def opencommit_commit(default_message: str = "add") -> bool:
-    """使用 opencommit CLI 自动提交，成功返回 True。"""
+    """使用 opencommit CLI 自动提交, 成功返回 True。"""
     try:
         diff: str = run_shell("git diff --staged", printf=False)
         if not diff:
@@ -57,6 +58,109 @@ def deep_create(data, *args, key, value):
         data = data[arg]
     data[key] = value
     return res
+
+
+def _iter_pyproject_toml_paths() -> list[str]:
+    paths = ["./pyproject.toml"]
+    for root in ("extbuild", "exts"):
+        if os.path.isdir(root):
+            for name in os.listdir(root):
+                sub = os.path.join(root, name)
+                if os.path.isdir(sub):
+                    t = os.path.join(sub, "pyproject.toml")
+                    if os.path.isfile(t):
+                        paths.append(t)
+    return paths
+
+
+def _pyproject_supports_version_sync(path: str) -> bool:
+    try:
+        cfg = toml.load(path)
+    except Exception:
+        return False
+    proj = cfg.get("project")
+    if isinstance(proj, dict) and "version" in proj:
+        return True
+    tool = cfg.get("tool")
+    if isinstance(tool, dict):
+        poetry = tool.get("poetry")
+        if isinstance(poetry, dict) and "version" in poetry:
+            return True
+    return False
+
+
+def _collect_pyproject_paths_for_version_sync() -> list[str]:
+    return [p for p in _iter_pyproject_toml_paths() if _pyproject_supports_version_sync(p)]
+
+
+def _append_package_json_if_versioned(path: str, out: list[str]) -> None:
+    if not os.path.isfile(path):
+        return
+    try:
+        with open(path, encoding="utf-8") as f:
+            pkg = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return
+    ver = pkg.get("version")
+    if isinstance(ver, str) and ver.strip():
+        out.append(path)
+
+
+def _collect_package_json_paths_for_version_sync() -> list[str]:
+    paths: list[str] = []
+    _append_package_json_if_versioned("./package.json", paths)
+    for root in ("extbuild", "exts"):
+        if not os.path.isdir(root):
+            continue
+        for name in sorted(os.listdir(root)):
+            sub = os.path.join(root, name)
+            if not os.path.isdir(sub):
+                continue
+            _append_package_json_if_versioned(os.path.join(sub, "package.json"), paths)
+    return paths
+
+
+def _sync_pyproject_version_file(path: str, version: str) -> None:
+    config = toml.load(path)
+    changed = False
+    proj = config.get("project")
+    if isinstance(proj, dict) and "version" in proj:
+        config["project"]["version"] = version
+        changed = True
+    tool = config.get("tool")
+    if isinstance(tool, dict):
+        poetry = tool.get("poetry")
+        if isinstance(poetry, dict) and "version" in poetry:
+            poetry["version"] = version
+            changed = True
+    if not changed:
+        return
+    with open(path, "w", encoding="utf-8") as f:
+        toml.dump(config, f)
+
+
+def _sync_package_json_version_file(path: str, version: str) -> None:
+    with open(path, encoding="utf-8") as f:
+        pkg = json.load(f)
+    pkg["version"] = version
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(pkg, f, indent=2, ensure_ascii=False)
+        f.write("\n")
+
+
+def sync_all_manifest_versions(version: str) -> None:
+    """将同一版本写入仓库内所有带 version 字段的 pyproject.toml 与 package.json (含 extbuild/exts 子目录)。"""
+    v = version.strip() if isinstance(version, str) else str(version)
+    for path in _collect_package_json_paths_for_version_sync():
+        try:
+            _sync_package_json_version_file(path, v)
+        except (OSError, json.JSONDecodeError, TypeError, KeyError) as e:
+            logger.warning(f"sync package.json version skipped {path}: {e}")
+    for path in _collect_pyproject_paths_for_version_sync():
+        try:
+            _sync_pyproject_version_file(path, v)
+        except Exception as e:
+            logger.warning(f"sync pyproject version skipped {path}: {e}")
 
 
 class BaseBuild:
@@ -130,9 +234,9 @@ class BaseBuild:
         """推送代码"""
         logger.info(f"{self.name} push")
         run_shell_list(["git add -A"])
-        run_shell_list(['aicommits --yes'])
+        run_shell_list(["aicommits --yes"])
         run_shell_list(["git push"])
-        #run_shell_list([f'git commit -a -m "{message}"', "git push"])
+        # run_shell_list([f'git commit -a -m "{message}"', "git push"])
 
     def install(self, *args, **kwargs):
         """安装包"""
@@ -202,7 +306,7 @@ class PypiBuild(BaseBuild):
     def check_type(self):
         """检查是否为PyPI项目"""
         if os.path.exists(self.version_path):
-            self.version = open(self.version_path, "r").read()  # noqa: UP015
+            self.version = open(self.version_path, "r").read().strip()  # noqa: UP015
             return True
         return False
 
@@ -210,6 +314,7 @@ class PypiBuild(BaseBuild):
         """写入版本号到文件"""
         with open(self.version_path, "w") as f:
             f.write(self.version)
+        sync_all_manifest_versions(self.version)
 
     def _cmd_build(self) -> list[str]:
         """构建命令"""
@@ -244,6 +349,7 @@ class PoetryBuild(BaseBuild):
         a["tool"]["poetry"]["version"] = self.version
         with open(self.toml_path, "w") as f:
             toml.dump(a, f)
+        sync_all_manifest_versions(self.version)
 
     def _cmd_publish(self) -> list[str]:
         """发布命令"""
@@ -292,6 +398,7 @@ class UVBuild(BaseBuild):
             except Exception as e:
                 logger.error(f"Failed to update version in {toml_path}: {e}")
                 raise  # 重要错误应该向上传播
+        sync_all_manifest_versions(self.version)
 
     def config_format(self, config):
         """格式化配置文件"""
@@ -387,6 +494,213 @@ class UVBuild(BaseBuild):
         return ["uv pip install dist/*.whl"]
 
 
+class NpmFrontendBuild(BaseBuild):
+    """基于 package.json 的前端项目构建与发布 (npm / pnpm / yarn), 支持 extbuild 子目录多包。"""
+
+    ROOT_PACKAGE_JSON = "./package.json"
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.package_json_paths: list[str] = []
+        self._pkg: dict = {}
+        self._pm = "npm"
+        self._nltbuild_cfg: dict = {}
+
+    @staticmethod
+    def _load_json_at(path: str) -> dict:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+
+    @staticmethod
+    def _nltbuild_from_pkg(pkg: dict) -> dict:
+        raw = pkg.get("nltbuild")
+        if isinstance(raw, dict):
+            return raw
+        if raw is True:
+            return {"enabled": True}
+        return {}
+
+    @staticmethod
+    def _package_qualifies(pkg: dict) -> bool:
+        ver = pkg.get("version")
+        if not isinstance(ver, str) or not ver.strip():
+            return False
+        cfg = NpmFrontendBuild._nltbuild_from_pkg(pkg)
+        scripts = pkg.get("scripts") or {}
+        custom_build = isinstance(cfg.get("build"), str) and bool(cfg["build"].strip())
+        has_build = isinstance(scripts, dict) and "build" in scripts
+        return bool(has_build or custom_build)
+
+    def _collect_package_json_paths(self) -> list[str]:
+        paths: list[str] = []
+        if os.path.isfile(self.ROOT_PACKAGE_JSON):
+            try:
+                pkg = self._load_json_at(self.ROOT_PACKAGE_JSON)
+                if self._package_qualifies(pkg):
+                    paths.append(self.ROOT_PACKAGE_JSON)
+            except (OSError, json.JSONDecodeError) as e:
+                logger.warning(f"skip root package.json: {e}")
+        ext_root = "extbuild"
+        if os.path.isdir(ext_root):
+            for name in sorted(os.listdir(ext_root)):
+                sub = os.path.join(ext_root, name)
+                if not os.path.isdir(sub):
+                    continue
+                pj = os.path.join(sub, "package.json")
+                if not os.path.isfile(pj):
+                    continue
+                try:
+                    pkg = self._load_json_at(pj)
+                    if self._package_qualifies(pkg):
+                        paths.append(pj)
+                except (OSError, json.JSONDecodeError) as e:
+                    logger.warning(f"skip {pj}: {e}")
+        return paths
+
+    def _detect_package_manager_for_dir(self, pkg_dir: str, cfg: dict) -> str:
+        """推断包管理器: 显式配置 > pnpm > npm > yarn。"""
+        pm = cfg.get("packageManager")
+        if pm in ("npm", "pnpm", "yarn"):
+            return pm
+        if os.path.exists(os.path.join(pkg_dir, "pnpm-lock.yaml")):
+            return "pnpm"
+        if os.path.exists(os.path.join(pkg_dir, "package-lock.json")):
+            return "npm"
+        if os.path.exists(os.path.join(pkg_dir, "yarn.lock")):
+            return "yarn"
+        return "npm"
+
+    @staticmethod
+    def _in_dir_shell(pkg_dir: str, inner: str) -> str:
+        d = os.path.normpath(pkg_dir)
+        if d in (".", ""):
+            return inner
+        return f"cd {shlex.quote(d)} && {inner}"
+
+    def _sync_primary_state(self):
+        primary = self.package_json_paths[0]
+        self._pkg = self._load_json_at(primary)
+        self._nltbuild_cfg = self._nltbuild_from_pkg(self._pkg)
+        ver = self._pkg.get("version")
+        if isinstance(ver, str) and ver.strip():
+            self.version = ver.strip()
+        pkg_dir = os.path.dirname(primary)
+        self._pm = self._detect_package_manager_for_dir(pkg_dir, self._nltbuild_cfg)
+
+    def check_type(self) -> bool:
+        self.package_json_paths = self._collect_package_json_paths()
+        if not self.package_json_paths:
+            return False
+        self._sync_primary_state()
+        return True
+
+    def _write_version(self):
+        for pj in self.package_json_paths:
+            pkg = self._load_json_at(pj)
+            pkg["version"] = self.version
+            with open(pj, "w", encoding="utf-8") as f:
+                json.dump(pkg, f, indent=2, ensure_ascii=False)
+                f.write("\n")
+        sync_all_manifest_versions(self.version)
+        self._sync_primary_state()
+
+    def _install_cmds_for_dir(self, pkg_dir: str, cfg: dict, pm: str) -> list[str]:
+        custom = cfg.get("install")
+        if isinstance(custom, str) and custom.strip():
+            return [custom.strip()]
+        if pm == "pnpm":
+            lock = os.path.join(pkg_dir, "pnpm-lock.yaml")
+            return ["pnpm install --frozen-lockfile" if os.path.exists(lock) else "pnpm install"]
+        if pm == "yarn":
+            lock = os.path.join(pkg_dir, "yarn.lock")
+            return ["yarn install --frozen-lockfile" if os.path.exists(lock) else "yarn install"]
+        lock = os.path.join(pkg_dir, "package-lock.json")
+        return ["npm ci" if os.path.exists(lock) else "npm install"]
+
+    def _build_cmd_for(self, cfg: dict, pm: str) -> str:
+        custom = cfg.get("build")
+        if isinstance(custom, str) and custom.strip():
+            return custom.strip()
+        if pm == "yarn":
+            return "yarn run build"
+        return f"{pm} run build"
+
+    def _cmd_build(self) -> list[str]:
+        out: list[str] = []
+        for pj in self.package_json_paths:
+            pkg_dir = os.path.dirname(pj)
+            pkg = self._load_json_at(pj)
+            cfg = self._nltbuild_from_pkg(pkg)
+            pm = self._detect_package_manager_for_dir(pkg_dir, cfg)
+            for cmd in self._install_cmds_for_dir(pkg_dir, cfg, pm):
+                out.append(self._in_dir_shell(pkg_dir, cmd))
+            out.append(self._in_dir_shell(pkg_dir, self._build_cmd_for(cfg, pm)))
+        return out
+
+    def install(self, *args, **kwargs):
+        logger.info(f"{self.name} install (frontend dependencies)")
+        if not self.package_json_paths:
+            self.package_json_paths = self._collect_package_json_paths()
+        if not self.package_json_paths:
+            return
+        cmds: list[str] = []
+        for pj in self.package_json_paths:
+            pkg_dir = os.path.dirname(pj)
+            pkg = self._load_json_at(pj)
+            cfg = self._nltbuild_from_pkg(pkg)
+            pm = self._detect_package_manager_for_dir(pkg_dir, cfg)
+            for c in self._install_cmds_for_dir(pkg_dir, cfg, pm):
+                cmds.append(self._in_dir_shell(pkg_dir, c))
+        run_shell_list(cmds)
+
+    def _cmd_install(self) -> list[str]:
+        return []
+
+    def _publish_cmds_for_package(self, pj: str) -> list[str]:
+        pkg = self._load_json_at(pj)
+        cfg = self._nltbuild_from_pkg(pkg)
+        pkg_dir = os.path.dirname(pj)
+        pm = self._detect_package_manager_for_dir(pkg_dir, cfg)
+        if cfg.get("publish") is False:
+            return []
+        custom = cfg.get("publish")
+        if isinstance(custom, str) and custom.strip():
+            return [self._in_dir_shell(pkg_dir, custom.strip())]
+        if pkg.get("private") is True:
+            logger.info(f"{pj}: private=true, skip publish; set nltbuild.publish to override")
+            return []
+        if pm == "pnpm":
+            pub = "pnpm publish --no-git-checks"
+        elif pm == "yarn":
+            pub = "yarn npm publish"
+        else:
+            pub = "npm publish"
+        return [self._in_dir_shell(pkg_dir, pub)]
+
+    def _cmd_publish(self) -> list[str]:
+        out: list[str] = []
+        for pj in self.package_json_paths:
+            out.extend(self._publish_cmds_for_package(pj))
+        return out
+
+    def _cmd_delete(self) -> list[str]:
+        dirs = self._nltbuild_cfg.get("cleanDirs")
+        if isinstance(dirs, list) and dirs:
+            return [f"rm -rf {d}" for d in dirs if isinstance(d, str) and d.strip()]
+        return [
+            "rm -rf dist",
+            "rm -rf build",
+            "rm -rf .next",
+            "rm -rf out",
+            "rm -rf storybook-static",
+            "rm -rf extbuild/*/dist",
+            "rm -rf extbuild/*/build",
+            "rm -rf extbuild/*/.next",
+            "rm -rf extbuild/*/out",
+            "rm -rf extbuild/*/storybook-static",
+        ]
+
+
 class EmptyBuild(BaseBuild):
     """UV构建类"""
 
@@ -419,9 +733,9 @@ class EmptyBuild(BaseBuild):
         return []
 
 
-def get_build() -> Union[UVBuild, PoetryBuild, PypiBuild]:
+def get_build() -> Union[UVBuild, PoetryBuild, PypiBuild, NpmFrontendBuild, EmptyBuild]:
     """获取合适的构建类"""
-    builders = [UVBuild, PoetryBuild, PypiBuild, EmptyBuild]
+    builders = [UVBuild, PoetryBuild, PypiBuild, NpmFrontendBuild, EmptyBuild]
     for builder in builders:
         build = builder()
         if build.check_type():
