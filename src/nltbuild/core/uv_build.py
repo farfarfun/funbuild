@@ -18,6 +18,17 @@ def _uv_bundle_out_dir(pkg_dir: str) -> str:
     return os.path.join("dist", "nltbuild", key)
 
 
+def _uv_bundle_out_dir_abs(repo_root: str, pkg_dir: str) -> str:
+    """与 _uv_bundle_out_dir 相同位置, 但为绝对路径。
+
+    uv build 在指定 --directory 为子目录时, --out-dir 按「包目录」解析相对路径,
+    若传 dist/nltbuild/... 会把产物写到 extbuild/foo/dist/... 而非仓库根下 dist/...,
+    导致后续 uv publish 在根 dist 下找不到文件。传入绝对路径可避免该问题。
+    """
+    rel = _uv_bundle_out_dir(pkg_dir)
+    return os.path.normpath(os.path.join(repo_root.strip(), rel))
+
+
 class UVBuild(BaseBuild):
     """UV构建类"""
 
@@ -137,12 +148,13 @@ class UVBuild(BaseBuild):
                 opts.append(f"--publish-url={url}")
         dirs_seen: set[str] = set()
         cmds: list[str] = []
+        root = self.repo_path.strip()
         for toml_path in self.toml_paths:
             pkg_dir = os.path.normpath(os.path.dirname(toml_path))
             if pkg_dir in dirs_seen:
                 continue
             dirs_seen.add(pkg_dir)
-            out_dir = _uv_bundle_out_dir(pkg_dir)
+            out_dir = _uv_bundle_out_dir_abs(root, pkg_dir)
             parts = ["uv", "publish", *opts, shlex.quote(f"{out_dir}/*")]
             cmds.append(" ".join(parts))
         return cmds
@@ -156,12 +168,13 @@ class UVBuild(BaseBuild):
             result.append("uvx ruff format")
             result.append("uvx ruff clean")
         seen_pkg: set[str] = set()
+        root = self.repo_path.strip()
         for toml_path in self.toml_paths:
             pkg_dir = os.path.normpath(os.path.dirname(toml_path))
             if pkg_dir in seen_pkg:
                 continue
             seen_pkg.add(pkg_dir)
-            out_dir = _uv_bundle_out_dir(pkg_dir)
+            out_dir = _uv_bundle_out_dir_abs(root, pkg_dir)
             result.append(
                 " ".join(
                     [
