@@ -89,10 +89,11 @@ class NpmFrontendBuild(BaseBuild):
 
     @staticmethod
     def _in_dir_shell(pkg_dir: str, inner: str) -> str:
+        """用子 shell 执行, 避免 run_shell_list 用 && 串联时 cd 残留导致后续相对路径错位。"""
         d = os.path.normpath(pkg_dir)
         if d in (".", ""):
             return inner
-        return f"cd {shlex.quote(d)} && {inner}"
+        return f"(cd {shlex.quote(d)} && {inner})"
 
     def _sync_primary_state(self):
         primary = self.package_json_paths[0]
