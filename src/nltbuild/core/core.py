@@ -446,7 +446,7 @@ class UVBuild(BaseBuild):
         ]
 
     def _cmd_publish(self) -> list[str]:
-        """发布命令"""
+        """发布命令: 对每个 pyproject 所在目录分别 uv publish (默认只上传该目录下 dist/*)。"""
         config = ConfigParser()
 
         config.read(f"{os.environ['HOME']}/.pypirc")
@@ -457,7 +457,7 @@ class UVBuild(BaseBuild):
             server = deep_get(a, "tool", "uv", "index", 0, "name") or server
         logger.info(f"public server: {server}")
         settings = config[server]
-        opts = []
+        opts: list[str] = []
         if user := settings.get("username"):
             password = settings.get("password")
 
@@ -472,8 +472,20 @@ class UVBuild(BaseBuild):
             url = settings.get("repository")
             if url and opts:
                 opts.append(f"--publish-url={url}")
-        a = ["uv", "publish", *opts]
-        return [" ".join(a)]
+        dirs_seen: set[str] = set()
+        cmds: list[str] = []
+        for toml_path in self.toml_paths:
+            pkg_dir = os.path.normpath(os.path.dirname(toml_path))
+            dir_key = pkg_dir if pkg_dir not in ("", ".") else "."
+            if dir_key in dirs_seen:
+                continue
+            dirs_seen.add(dir_key)
+            parts = ["uv", "publish"]
+            if dir_key != ".":
+                parts.extend(["--directory", shlex.quote(pkg_dir)])
+            parts.extend(opts)
+            cmds.append(" ".join(parts))
+        return cmds
 
     def _cmd_build(self) -> list[str]:
         """构建命令"""
