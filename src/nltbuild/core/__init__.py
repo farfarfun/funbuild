@@ -1,3 +1,3 @@
-from .core import nltbuild
+from .cli import nltbuild
 
 __all__ = ["nltbuild"]
