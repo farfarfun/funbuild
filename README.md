@@ -1,214 +1,146 @@
-# funbuild
+# nltbuild
 
-[![PyPI version](https://badge.fury.io/py/funbuild.svg)](https://badge.fury.io/py/funbuild)
+[![PyPI version](https://badge.fury.io/py/nltbuild.svg)](https://badge.fury.io/py/nltbuild)
 [![Python](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-funbuild 是一个现代化的 Python 项目构建和管理工具，旨在简化 Python 项目的开发、构建、发布和维护流程。它集成了多种构建工具和最佳实践，为开发者提供一站式的项目管理解决方案。
+**nltbuild** 是面向 Python / 混合仓库的构建与发布辅助工具：根据项目结构自动选择构建策略（UV、Poetry、旧式 PyPI 脚本、`package.json` 前端包及混合模式等），串联版本递增、构建、安装校验、发布与 Git 标签等常见流程。
 
+## 特性
 
+- **多构建策略**：按仓库布局自动匹配 `UVBuild`、`PoetryBuild`、`PypiBuild`、`NpmFrontendBuild`、`UvNpmHybridBuild` 等实现，无需手写切换逻辑。
+- **版本同步**：以根目录 `pyproject.toml` 的 `[project].version` 为主源时，可将版本同步到仓内其它带 `version` 的 `pyproject.toml` 与 `package.json`（含子目录）。
+- **依赖与工具链**：内置对 **uv**、**ruff** 等工具的调用约定；日志通过 **nltlog**，Shell 流程通过 **funshell**。
+- **Git 工作流**：`pull` / `push` / `tags` 等与远程协作；`push` 默认在提交阶段使用 **aicommits** 生成说明（需本机已安装该 CLI）。
+- **维护命令**：`clean` 与 `clean_history` 会改写 Git 状态或强制重写远程历史，使用前请确认团队规范与备份策略。
 
-## ✨ 特性
+## 系统要求
 
-- 🚀 **多构建工具支持**: 支持 PyPI、Poetry 和 UV 等多种构建方式
-- 🔄 **自动化版本管理**: 智能版本升级和发布流程
-- 📦 **依赖管理**: 自动处理项目依赖和环境配置
-- 🔧 **Git 集成**: 内置 Git 操作，包括拉取、推送和历史清理
-- 🤖 **AI 提交信息**: 集成 opencommit 自动生成智能提交信息
-- 🧹 **项目清理**: 自动清理缓存、构建文件和历史记录
-- 📋 **标签管理**: 自动创建和管理 Git 标签
-- 🎯 **命令行界面**: 简洁易用的 CLI 工具
+- Python 3.9+
+- Git（版本管理与标签推送）
+- 若使用 `nltbuild push` 的默认行为：本机需可用 `aicommits`（例如 `npm install -g aicommits` 并按其文档配置）
 
-## 📋 系统要求
+## 安装
 
-- Python 3.9 或更高版本
-- Git（用于版本控制功能）
-
-## 🚀 安装
-
-### 从 PyPI 安装（推荐）
+### 从 PyPI 安装
 
 ```bash
-pip install funbuild
+pip install nltbuild
 ```
 
 ### 从源码安装
 
 ```bash
-git clone https://github.com/farfarfun/funbuild.git
-cd funbuild
+git clone https://github.com/farfarfun/nltbuild.git
+cd nltbuild
 pip install .
 ```
 
-## 📖 使用指南
+使用 [uv](https://github.com/astral-sh/uv) 时，可在克隆后执行 `uv sync` 或 `uv pip install -e .` 进行可编辑安装。
 
-### 基本命令
+## 使用说明
 
-在项目根目录下，您可以使用以下命令来管理您的构建流程：
+在项目根目录执行 `nltbuild` 子命令（入口由 `pyproject.toml` 中 `[project.scripts]` 注册为 `nltbuild`）。
 
-#### 版本管理
-
-```bash
-# 升级项目版本
-funbuild upgrade
-
-# 升级到指定版本
-funbuild upgrade --version 1.2.3
-```
-
-#### Git 操作
+### 版本
 
 ```bash
-# 拉取最新代码
-funbuild pull
-
-# 推送代码（支持自动生成提交信息）
-funbuild push --message "您的提交信息"
-
-# 使用 AI 自动生成提交信息
-funbuild push
+# 按内置策略自增并写回各清单文件
+nltbuild upgrade
 ```
 
-> `funbuild push` 的 AI 提交依赖 opencommit CLI（`oco` 命令），请先按官方文档安装并配置：
-> 1) `npm install -g opencommit`
-> 2) `oco config set OCO_API_KEY=<your_api_key>`
+> 当前 CLI 未暴露「写入指定版本号」参数；需要固定版本时请直接编辑 `pyproject.toml` 等清单后再提交。
 
-#### 项目构建
+### Git
 
 ```bash
-# 安装项目依赖
-funbuild install
+nltbuild pull
 
-# 构建并发布项目
-funbuild build --message "发布信息"
-
-# 仅构建不发布
-funbuild build --no-publish
+# 默认：git add -A → aicommits --yes → git push
+nltbuild push
 ```
 
-#### 项目维护
+### 构建与发布
 
 ```bash
-# 清理 Git 历史记录
-funbuild clean_history
+# 本地构建并安装 wheel、执行发布命令（依具体 Build 实现而定），随后 push 与打标签
+nltbuild build
 
-# 清理构建缓存和临时文件
-funbuild clean
-
-# 创建 Git 标签
-funbuild tags
+# 仅构建并安装到当前环境（不执行完整 publish + 推送流水线时，请直接调用底层工具，例如 uv build）
+nltbuild install
 ```
 
-### 高级用法
+`nltbuild build` 在基类实现中会依次触发：`pull` → `upgrade` → 构建/安装/发布/清理 → `push` → `tags`。实际命令序列取决于选中的 Build 类型。
 
-#### 配置文件
-
-funbuild 使用 `pyproject.toml` 文件进行配置。您可以在该文件中自定义构建行为：
-
-```toml
-[tool.funbuild]
-# 构建类型：pypi, poetry, uv
-build_type = "uv"
-
-# 自动版本升级策略
-version_strategy = "patch"  # major, minor, patch
-
-# 发布前是否运行测试
-run_tests = true
-
-# 自定义构建命令
-build_commands = [
-    "ruff check .",
-    "pytest tests/",
-]
-```
-
-#### 环境变量
+### 维护类（高风险）
 
 ```bash
-# 设置构建类型
-export FUNBUILD_TYPE=uv
+# 清理 Git 缓存与索引（会生成提交）
+nltbuild clean
 
-# 设置发布仓库
-export FUNBUILD_REPOSITORY=https://upload.pypi.org/legacy/
+# 清空标签并重写远程 master（破坏性操作，仅限明确需要「清历史」的仓库）
+nltbuild clean_history
 
-# 启用详细日志
-export FUNBUILD_VERBOSE=1
+nltbuild tags
 ```
 
-## 🔧 集成工具
+## 配置说明
 
-funbuild 集成了以下优秀的工具：
+- **Python 项目**：在根目录 `pyproject.toml` 中维护 `[project].version` 与依赖；UV 类构建会读写该版本并同步到其它清单。
+- **纯前端 / 子包**：在对应 `package.json` 中可使用 `nltbuild` 字段（对象或 `true`）扩展行为（例如自定义 `build` 命令、`cleanDirs` 等），具体逻辑见源码中 `NpmFrontendBuild`。
 
-- **[uv](https://github.com/astral-sh/uv)**: 现代 Python 包管理器
-- **[ruff](https://github.com/astral-sh/ruff)**: 快速 Python 代码检查和格式化工具
-- **[opencommit](https://github.com/di-sukharev/opencommit)**: AI 驱动的 Git 提交信息生成器
-- **[typer](https://typer.tiangolo.com/)**: 现代 CLI 应用框架
+构建类型的判定顺序见 `src/nltbuild/core/registry.py` 中的注册表；无需再使用旧文档中的 `[tool.funbuild]` 等虚构段名。
 
-## 📁 项目结构
+## 集成组件
+
+- [uv](https://github.com/astral-sh/uv) — 包管理与构建
+- [ruff](https://github.com/astral-sh/ruff) — Lint / 格式化（按项目配置使用）
+- [typer](https://typer.tiangolo.com/)（`typer-slim`）— CLI 框架
+- [aicommits](https://github.com/Nutlope/aicommits) — 默认与 `push` 流水线集成的提交信息生成（以本机 CLI 为准）
+
+## 仓库布局（摘要）
 
 ```
-funbuild/
+nltbuild/
 ├── src/
-│   └── funbuild/
-│       ├── core/          # 核心构建逻辑
-│       ├── shell/         # Shell 命令执行
-│       └── tool/          # 工具集成
-├── examples/              # 使用示例
-├── tests/                 # 测试文件
-├── pyproject.toml         # 项目配置
-└── README.md             # 项目文档
+│   └── nltbuild/
+│       ├── core/       # 构建注册与各策略实现
+│       └── tool/       # 附加工具入口
+├── pyproject.toml
+└── README.md
 ```
 
-## 🤝 贡献指南
+## 参与贡献
 
-我们欢迎任何形式的贡献！请遵循以下步骤：
+1. Fork [nltbuild](https://github.com/farfarfun/nltbuild)
+2. 新建分支并提交变更
+3. 发起 Pull Request
 
-1. Fork 本仓库
-2. 创建您的特性分支 (`git checkout -b feature/AmazingFeature`)
-3. 提交您的更改 (`git commit -m 'Add some AmazingFeature'`)
-4. 推送到分支 (`git push origin feature/AmazingFeature`)
-5. 打开一个 Pull Request
-
-### 开发环境设置
+本地开发示例：
 
 ```bash
-# 克隆仓库
-git clone https://github.com/farfarfun/funbuild.git
-cd funbuild
+git clone https://github.com/farfarfun/nltbuild.git
+cd nltbuild
+uv pip install -e .
+# 或: pip install -e .
 
-# 安装开发依赖
-pip install -e ".[dev]"
-
-# 运行测试
-pytest tests/
-
-# 代码格式化
 ruff format .
 ruff check . --fix
 ```
 
-## 📄 许可证
+## 许可证
 
-本项目采用 [MIT 许可证](LICENSE)。
+本项目以 [MIT 许可证](LICENSE) 发布。
 
-## 🔗 相关链接
+## 链接
 
-- [GitHub 仓库](https://github.com/farfarfun/funbuild)
-- [PyPI 页面](https://pypi.org/project/funbuild/)
-- [发布记录](https://github.com/farfarfun/funbuild/releases)
-- [问题反馈](https://github.com/farfarfun/funbuild/issues)
+- [源码仓库](https://github.com/farfarfun/nltbuild)
+- [PyPI：nltbuild](https://pypi.org/project/nltbuild/)
+- [Issues](https://github.com/farfarfun/nltbuild/issues)
 
-## 👥 维护者
+## 维护者
 
-- **牛哥** - [niuliangtao@qq.com](mailto:niuliangtao@qq.com)
-- **farfarfun** - [farfarfun@qq.com](mailto:farfarfun@qq.com)
+- **牛哥** — [niuliangtao@qq.com](mailto:niuliangtao@qq.com)
+- **farfarfun** — [farfarfun@qq.com](mailto:farfarfun@qq.com)
 
-## 🙏 致谢
-
-感谢所有为 funbuild 项目做出贡献的开发者和用户！
-
----
-
-如果您觉得 funbuild 对您有帮助，请给我们一个 ⭐️！
-
+若 nltbuild 对你有帮助，欢迎点个 Star。
