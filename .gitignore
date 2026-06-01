@@ -7,3 +7,4 @@ example/download/*
 *.pyc
 logs
 uv.lock
+tmp
