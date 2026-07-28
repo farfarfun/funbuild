@@ -61,7 +61,7 @@ def nltbuild():
         builder.clean()
 
     @cli.command()
-    def tags():
+    def tag():
         """创建标签"""
         builder.tags()
 
