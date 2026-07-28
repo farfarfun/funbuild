@@ -56,8 +56,11 @@ nltbuild upgrade
 ```bash
 nltbuild pull
 
-# 默认：git add -A → aicommits --yes → git push
+# 默认按文件修改时间从旧到新排序，每 20 个文件生成一次提交，最后统一推送
 nltbuild push
+
+# 自定义每个提交的文件数
+nltbuild push --batch-size 50
 ```
 
 ### 构建与发布

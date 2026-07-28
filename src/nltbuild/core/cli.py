@@ -25,10 +25,14 @@ def nltbuild():
     @cli.command()
     def push(
         message: str = "add",
+        batch_size: typing.Annotated[
+            int, typer.Option("--batch-size", min=1, help="每个提交包含的最大修改文件数")
+        ] = 20,
     ):
         """推送代码"""
         builder.push(
             message,
+            batch_size=batch_size,
         )
 
     @cli.command()

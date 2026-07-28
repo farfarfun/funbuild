@@ -1,6 +1,7 @@
 #!/usr/bin/python3
 
-import shlex
+import os
+import subprocess
 
 from funshell import run_shell, run_shell_list
 
@@ -72,16 +73,45 @@ class BaseBuild:
         logger.info(f"{self.name} pull")
         run_shell_list(["git pull"])
 
-    def push(self, message="add", *args, **kwargs):
+    def _changed_files(self):
+        output = subprocess.run(
+            ["git", "status", "--porcelain=v1", "-z", "--untracked-files=all"],
+            cwd=self.repo_path,
+            check=True,
+            stdout=subprocess.PIPE,
+        ).stdout
+        fields = output.split(b"\0")
+        changes = []
+        index = 0
+        while index < len(fields) and fields[index]:
+            record = fields[index]
+            paths = [os.fsdecode(record[3:])]
+            if b"R" in record[:2] or b"C" in record[:2]:
+                index += 1
+                paths.append(os.fsdecode(fields[index]))
+            try:
+                modified = os.lstat(os.path.join(self.repo_path, paths[0])).st_mtime_ns
+            except FileNotFoundError:
+                modified = 0
+            changes.append((modified, paths[0], paths))
+            index += 1
+        return sorted(changes)
+
+    def push(self, message="add", batch_size=20, *args, **kwargs):
         """推送代码"""
         logger.info(f"{self.name} push")
-        run_shell_list(["git add -A"])
-        try:
-            if not opencommit_commit(message):
-                run_shell_list([f"git commit -m {shlex.quote(message)}"])
-        except Exception as e:
-            logger.warning(f"commit skipped or failed: {e}")
-        run_shell_list(["git push"])
+        if batch_size < 1:
+            raise ValueError("batch_size must be at least 1")
+
+        changes = self._changed_files()
+        if changes:
+            subprocess.run(["git", "reset", "--quiet"], cwd=self.repo_path, check=True)
+        for start in range(0, len(changes), batch_size):
+            paths = list(dict.fromkeys(path for change in changes[start : start + batch_size] for path in change[2]))
+            subprocess.run(["git", "add", "-A", "--", *paths], cwd=self.repo_path, check=True)
+            if not opencommit_commit(message, cwd=self.repo_path):
+                subprocess.run(["git", "commit", "-m", message], cwd=self.repo_path, check=True)
+        subprocess.run(["git", "push"], cwd=self.repo_path, check=True)
 
     def install(self, *args, **kwargs):
         """安装包"""

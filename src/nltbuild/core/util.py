@@ -1,25 +1,22 @@
 #!/usr/bin/python3
 
-import traceback
+import subprocess
 
-from funshell import run_shell
 from nltlog import getLogger
 
 logger = getLogger("nltbuild")
 
 
-def opencommit_commit(default_message: str = "add") -> bool:
+def opencommit_commit(default_message: str = "add", cwd=None) -> bool:
     """使用 opencommit CLI 自动提交, 成功返回 True。"""
     try:
-        diff: str = run_shell("git diff --staged", printf=False)
-        if not diff:
+        if subprocess.run(["git", "diff", "--staged", "--quiet"], cwd=cwd, check=False).returncode == 0:
             logger.warning("No staged changes")
             return False
 
-        run_shell("aicommits --yes")
-        return True
+        subprocess.run(["aicommits", "--yes"], cwd=cwd, check=True)
+        return subprocess.run(["git", "diff", "--staged", "--quiet"], cwd=cwd, check=False).returncode == 0
     except Exception as e:
-        traceback.print_exc()
         logger.error(f"opencommit commit failed: {e}")
         logger.info(f"fallback to default commit message: {default_message}")
         return False
