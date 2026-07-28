@@ -264,5 +264,23 @@ class ReleaseAliasTest(unittest.TestCase):
         )
 
 
+class TagCommandTest(unittest.TestCase):
+    """标签命令已由 tags 重命名为 tag。"""
+
+    def invoke(self, argv):
+        builder = MagicMock()
+        with patch("nltbuild.core.cli.get_build", return_value=builder):
+            with patch.object(sys, "argv", ["nltbuild", *argv]):
+                with contextlib.suppress(SystemExit):
+                    cli_entry()
+        return builder
+
+    def test_tag_dispatches_to_builder(self):
+        self.invoke(["tag"]).tags.assert_called_once_with()
+
+    def test_old_tags_name_is_gone(self):
+        self.invoke(["tags"]).tags.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

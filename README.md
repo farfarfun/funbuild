@@ -11,7 +11,7 @@
 - **多构建策略**：按仓库布局自动匹配 `UVBuild`、`PoetryBuild`、`PypiBuild`、`NpmFrontendBuild`、`UvNpmHybridBuild` 等实现，无需手写切换逻辑。
 - **版本同步**：以根目录 `pyproject.toml` 的 `[project].version` 为主源时，可将版本同步到仓内其它带 `version` 的 `pyproject.toml` 与 `package.json`（含子目录）。
 - **依赖与工具链**：内置对 **uv**、**ruff** 等工具的调用约定；日志通过 **nltlog**，Shell 流程通过 **funshell**。
-- **Git 工作流**：`pull` / `push` / `tags` 等与远程协作；`push` 在提交阶段优先用 **aicommits** 生成说明，未安装时自动回退到默认信息。
+- **Git 工作流**：`pull` / `push` / `tag` 等与远程协作；`push` 在提交阶段优先用 **aicommits** 生成说明，未安装时自动回退到默认信息。
 - **失败即中止**：任一 shell 步骤返回非 0 即抛出 `ShellCommandError` 并以非 0 码退出，构建失败不会继续推送或打标签。
 - **维护命令**：`clean` 与 `clean-history` 会改写 Git 状态或强制重写远程历史，使用前请确认团队规范与备份策略。
 
@@ -51,7 +51,7 @@ pip install .
 | `install` | — | 构建 + 安装到当前环境 + 清理产物 |
 | `build` | `message`（位置参数，默认 `add`） | 完整发布流水线，见下 |
 | `release` | 同 `build` | `build` 的别名，行为完全一致 |
-| `tags` | — | 打 `v{version}` 标签并推送 |
+| `tag` | — | 打 `v{version}` 标签并推送 |
 | `clean` | — | 重建 Git 索引以应用新的 `.gitignore`（会产生一次提交） |
 | `clean-history` | — | **破坏性**：删除全部标签与提交历史并强推远程 |
 
@@ -105,7 +105,7 @@ nltbuild release
 nltbuild install
 ```
 
-`build` 依次触发：`pull` → `upgrade` → 清理 → 构建 → 安装校验 → 发布 → 清理 → `push` → `tags`。实际命令序列取决于选中的 Build 类型。任一步失败会立即中止，不会继续 push 或打标签。
+`build` 依次触发：`pull` → `upgrade` → 清理 → 构建 → 安装校验 → 发布 → 清理 → `push` → `tag`。实际命令序列取决于选中的 Build 类型。任一步失败会立即中止，不会继续 push 或打标签。
 
 ### 维护类（高风险）
 
@@ -138,7 +138,7 @@ nltbuild build
 
 ## 错误处理
 
-所有 shell 步骤经 `run_checked()` 执行，退出码非 0 即抛 `ShellCommandError`，进程以非 0 码退出。这意味着 `nltbuild build` 在构建或发布失败时不会再继续 `push` 和 `tags`，可直接用于 CI 的失败判定。
+所有 shell 步骤经 `run_checked()` 执行，退出码非 0 即抛 `ShellCommandError`，进程以非 0 码退出。这意味着 `nltbuild build` 在构建或发布失败时不会再继续 `push` 和 `tag`，可直接用于 CI 的失败判定。
 
 ## 配置说明
 
