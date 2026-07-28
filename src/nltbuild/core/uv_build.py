@@ -119,6 +119,27 @@ class UVBuild(BaseBuild):
             "rm -rf exts/*/src/*.egg-info",
         ]
 
+    def _export_publish_credentials(self, settings) -> None:
+        """把 ~/.pypirc 凭据导出为 UV_PUBLISH_* 环境变量。
+
+        凭据不能拼进命令行: funshell 用 shell=True 执行, 完整命令行会出现在
+        进程表中 (ps aux) 对本机所有用户可见; 且明文拼接遇到含引号/空格的密码
+        会破坏引号甚至造成命令注入。uv 原生支持从环境变量读取。
+        """
+        user = settings.get("username")
+        if not user:
+            return
+        password = settings.get("password")
+        if "__token__" in user:
+            if password:
+                os.environ["UV_PUBLISH_TOKEN"] = password
+        else:
+            os.environ["UV_PUBLISH_USERNAME"] = user
+            if password:
+                os.environ["UV_PUBLISH_PASSWORD"] = password
+        if url := settings.get("repository"):
+            os.environ["UV_PUBLISH_URL"] = url
+
     def _cmd_publish(self) -> list[str]:
         """发布命令: 按各包构建产物目录分别 uv publish。"""
         config = ConfigParser()
@@ -135,22 +156,8 @@ class UVBuild(BaseBuild):
             a = toml.load(self.toml_paths[0])
             server = deep_get(a, "tool", "uv", "index", 0, "name") or server
         logger.info(f"public server: {server}")
-        settings = config[server] if config.has_section(server) else {}
-        opts: list[str] = []
-        if user := settings.get("username"):
-            password = settings.get("password")
+        self._export_publish_credentials(config[server] if config.has_section(server) else {})
 
-            if "__token__" in user:
-                if password:
-                    opts.append(f"--token={password}")
-            else:
-                opts.append(f"--username={user}")
-                if password:
-                    opts.append(f"--password='{password}'")
-
-            url = settings.get("repository")
-            if url and opts:
-                opts.append(f"--publish-url={url}")
         dirs_seen: set[str] = set()
         cmds: list[str] = []
         root = self.repo_path.strip()
@@ -160,8 +167,7 @@ class UVBuild(BaseBuild):
                 continue
             dirs_seen.add(pkg_dir)
             out_dir = _uv_bundle_out_dir_abs(root, pkg_dir)
-            parts = ["uv", "publish", *opts, shlex.quote(f"{out_dir}/*")]
-            cmds.append(" ".join(parts))
+            cmds.append(" ".join(["uv", "publish", shlex.quote(f"{out_dir}/*")]))
         return cmds
 
     def _cmd_build(self) -> list[str]:

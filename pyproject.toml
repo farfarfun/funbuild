@@ -1,6 +1,6 @@
 [project]
 name = "nltbuild"
-version = "1.6.54"
+version = "1.6.55"
 description = "nltbuild"
 readme = "README.md"
 requires-python = ">=3.9"

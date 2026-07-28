@@ -4,10 +4,8 @@ import json
 import os
 import shlex
 
-from funshell import run_shell_list
-
 from .base import BaseBuild
-from .util import logger
+from .util import logger, run_checked
 from .version_sync import root_pyproject_project_version, sync_all_manifest_versions
 
 
@@ -187,7 +185,7 @@ class NpmFrontendBuild(BaseBuild):
             pm = self._detect_package_manager_for_dir(pkg_dir, cfg)
             for c in self._install_cmds_for_dir(pkg_dir, cfg, pm):
                 cmds.append(self._in_dir_shell(pkg_dir, c))
-        run_shell_list(cmds)
+        run_checked(cmds)
 
     def _cmd_install(self) -> list[str]:
         return []

@@ -3,9 +3,9 @@
 import os
 import subprocess
 
-from funshell import run_shell, run_shell_list
+from funshell import run_shell
 
-from .util import logger, opencommit_commit
+from .util import logger, opencommit_commit, parse_version, run_checked
 
 
 class BaseBuild:
@@ -25,19 +25,15 @@ class BaseBuild:
         raise NotImplementedError
 
     def __version_upgrade(self, step=128):
-        """版本号自增"""
-        version = self.version
-        if version is None:
-            version = "0.0.1"
+        """版本号自增: 按 step 进制进位, 即 patch 满 step 时向 minor 进位。"""
+        version = self.version or "0.0.1"
 
-        version1 = [int(i) for i in version.split(".")]
-        version2 = version1[0] * step * step + version1[1] * step + version1[2] + 1
+        parts, suffix = parse_version(version)
+        if suffix:
+            logger.warning(f"version {version!r} has suffix {suffix!r}, dropped when upgrading")
 
-        version1[2] = version2 % step
-        version1[1] = int(version2 / step) % step
-        version1[0] = int(version2 / step / step)
-
-        return "{}.{}.{}".format(*version1)
+        total = parts[0] * step * step + parts[1] * step + parts[2] + 1
+        return f"{total // (step * step)}.{total // step % step}.{total % step}"
 
     def _cmd_build(self) -> list[str]:
         """构建命令"""
@@ -71,7 +67,7 @@ class BaseBuild:
     def pull(self, *args, **kwargs):
         """拉取代码"""
         logger.info(f"{self.name} pull")
-        run_shell_list(["git pull"])
+        run_checked(["git pull"])
 
     def _changed_files(self):
         output = subprocess.run(
@@ -116,14 +112,14 @@ class BaseBuild:
     def install(self, *args, **kwargs):
         """安装包"""
         logger.info(f"{self.name} install")
-        run_shell_list(self._cmd_build() + self._cmd_install() + self._cmd_delete())
+        run_checked(self._cmd_build() + self._cmd_install() + self._cmd_delete())
 
     def build(self, message="add", *args, **kwargs):
         """构建发布流程"""
         logger.info(f"{self.name} build")
         self.pull()
         self.upgrade()
-        run_shell_list(
+        run_checked(
             self._cmd_delete() + self._cmd_build() + self._cmd_install() + self._cmd_publish() + self._cmd_delete()
         )
         self.push(message=message)
@@ -133,11 +129,12 @@ class BaseBuild:
         """清理git历史记录"""
         logger.info(f"{self.name} clean history")
         current_branch = run_shell("git rev-parse --abbrev-ref HEAD", printf=False).strip() or "master"
-        run_shell_list(
+        run_checked(
             [
                 "git tag -d $(git tag -l) || true",
                 "git fetch",
-                "git push origin --delete $(git tag -l)",
+                # 无 tag 时 `git push origin --delete` 会因缺少参数报错, 故先判空
+                '[ -z "$(git tag -l)" ] || git push origin --delete $(git tag -l)',
                 "git tag -d $(git tag -l) || true",
                 "git checkout --orphan latest_branch",
                 "git add -A",
@@ -153,7 +150,7 @@ class BaseBuild:
     def clean(self, *args, **kwargs):
         """清理git缓存"""
         logger.info(f"{self.name} clean")
-        run_shell_list(
+        run_checked(
             [
                 "git rm -r --cached .",
                 "git add .",
@@ -167,7 +164,7 @@ class BaseBuild:
         if not self.version:
             logger.warning("skip tags: version is not set")
             return
-        run_shell_list(
+        run_checked(
             [
                 f"git tag --force v{self.version}",
                 "git push --tags",

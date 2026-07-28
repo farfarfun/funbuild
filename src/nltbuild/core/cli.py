@@ -47,6 +47,9 @@ def nltbuild():
         """构建发布"""
         builder.build(message=message)
 
+    # release 是 build 的别名: 复用同一函数对象而非复制签名, 避免两者日后漂移
+    cli.command("release", help="构建发布 (build 的别名)")(build)
+
     @cli.command()
     def clean_history():
         """清理历史"""

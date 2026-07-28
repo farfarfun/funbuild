@@ -2,11 +2,9 @@
 
 from typing import Optional
 
-from funshell import run_shell_list
-
 from .base import BaseBuild
 from .npm_frontend import NpmFrontendBuild
-from .util import logger
+from .util import logger, run_checked
 from .uv_build import UVBuild
 
 
@@ -62,5 +60,5 @@ class UvNpmHybridBuild(BaseBuild):
     def install(self, *args, **kwargs):
         assert self._uv is not None and self._npm is not None
         logger.info(f"{self.name} install (hybrid: uv wheel + frontend deps)")
-        run_shell_list(self._uv._cmd_build() + self._uv._cmd_install() + self._uv._cmd_delete())
+        run_checked(self._uv._cmd_build() + self._uv._cmd_install() + self._uv._cmd_delete())
         self._npm.install(*args, **kwargs)
