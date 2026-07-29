@@ -14,10 +14,12 @@ from unittest.mock import MagicMock, patch
 from nltbuild.core import util
 from nltbuild.core.base import BaseBuild
 from nltbuild.core.cli import nltbuild as cli_entry
+from nltbuild.core.empty_build import EmptyBuild
 from nltbuild.core.poetry_build import PoetryBuild
 from nltbuild.core.registry import get_build
 from nltbuild.core.util import ShellCommandError, parse_version, run_checked
 from nltbuild.core.uv_build import UVBuild
+from nltbuild.core.version_file_build import VersionFileBuild
 
 
 def make_builder(cls=BaseBuild, version=None, repo_path="/tmp"):
@@ -166,6 +168,61 @@ class RegistryTest(unittest.TestCase):
         with patch.object(PoetryBuild, "check_type", side_effect=RuntimeError("boom")):
             with patch("nltbuild.core.base.run_shell", return_value="/tmp"):
                 self.assertIsNotNone(get_build())
+
+
+class VersionFileBuildTest(unittest.TestCase):
+    """根目录纯文本 VERSION 的仓库 (如 shell 项目) 应被识别, 而不是静默落到 EmptyBuild。"""
+
+    @contextlib.contextmanager
+    def repo(self, files):
+        with tempfile.TemporaryDirectory() as temp:
+            for name, content in files.items():
+                (Path(temp) / name).write_text(content, encoding="utf-8")
+            cwd = os.getcwd()
+            os.chdir(temp)
+            try:
+                with patch("nltbuild.core.base.run_shell", return_value=temp):
+                    yield Path(temp)
+            finally:
+                os.chdir(cwd)
+
+    def test_version_file_repo_is_recognized(self):
+        with self.repo({"VERSION": "0.1.7\n"}):
+            builder = get_build()
+        self.assertIsInstance(builder, VersionFileBuild)
+        self.assertEqual(builder.version, "0.1.7")
+
+    def test_v_prefix_is_stripped(self):
+        """否则 tag 会拼成 vv0.1.7。"""
+        with self.repo({"VERSION": "v0.1.7\n"}):
+            self.assertEqual(get_build().version, "0.1.7")
+
+    def test_upgrade_writes_back(self):
+        with self.repo({"VERSION": "0.1.7\n"}) as root:
+            get_build().upgrade()
+            self.assertEqual((root / "VERSION").read_text().strip(), "0.1.8")
+
+    def test_unparseable_version_file_falls_through(self):
+        with self.repo({"VERSION": "not-a-version\n"}):
+            self.assertNotIsInstance(get_build(), VersionFileBuild)
+
+    def test_empty_version_file_falls_through(self):
+        with self.repo({"VERSION": "\n"}):
+            self.assertNotIsInstance(get_build(), VersionFileBuild)
+
+    def test_pyproject_takes_precedence_over_version_file(self):
+        manifest = '[project]\nname = "x"\nversion = "2.0.0"\n'
+        with self.repo({"VERSION": "0.1.7\n", "pyproject.toml": manifest}):
+            builder = get_build()
+        self.assertNotIsInstance(builder, VersionFileBuild)
+        self.assertEqual(builder.version, "2.0.0")
+
+    def test_no_manifest_warns_before_falling_back(self):
+        with self.repo({"README.md": "x\n"}):
+            with self.assertLogs("nltbuild", level="WARNING") as logs:
+                builder = get_build()
+        self.assertIsInstance(builder, EmptyBuild)
+        self.assertTrue(any("未识别到版本清单" in m for m in logs.output))
 
 
 class PublishCredentialsTest(unittest.TestCase):

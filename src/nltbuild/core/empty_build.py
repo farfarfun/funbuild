@@ -1,16 +1,24 @@
 #!/usr/bin/python3
 
 from .base import BaseBuild
+from .util import logger
 
 
 class EmptyBuild(BaseBuild):
-    """UV构建类"""
+    """兜底构建类: 所有命令均为空操作。
+
+    永远匹配, 因此必须排在注册表最后。
+    """
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
     def check_type(self) -> bool:
-        """检查是否为UV项目"""
+        """兜底匹配。走到这里说明没有任何构建策略认领本仓库。"""
+        logger.warning(
+            "未识别到版本清单 (pyproject.toml / package.json / VERSION / script/__version__.md), "
+            "回退到 EmptyBuild: upgrade、tag、build 将不会有任何效果"
+        )
         return True
 
     def _write_version(self):
