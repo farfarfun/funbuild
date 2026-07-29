@@ -104,7 +104,7 @@ class BaseBuild:
             subprocess.run(["git", "reset", "--quiet"], cwd=self.repo_path, check=True)
         for start in range(0, len(changes), batch_size):
             paths = list(dict.fromkeys(path for change in changes[start : start + batch_size] for path in change[2]))
-            subprocess.run(["git", "add", "-A", "--", *paths], cwd=self.repo_path, check=True)
+            subprocess.run(["git", "add", "-A", "-f", "--", *paths], cwd=self.repo_path, check=True)
             if not opencommit_commit(message, cwd=self.repo_path):
                 subprocess.run(["git", "commit", "-m", message], cwd=self.repo_path, check=True)
         subprocess.run(["git", "push"], cwd=self.repo_path, check=True)

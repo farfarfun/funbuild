@@ -24,7 +24,8 @@ class PushTest(unittest.TestCase):
             git(repo, "config", "user.email", "test@example.com")
             git(repo, "remote", "add", "origin", str(remote))
             (repo / "README").write_text("initial\n")
-            git(repo, "add", "README")
+            (repo / ".gitignore").write_text("file-20.txt\n")
+            git(repo, "add", "README", ".gitignore")
             git(repo, "commit", "-m", "initial")
             git(repo, "push", "-u", "origin", "HEAD")
             branch = git(repo, "branch", "--show-current")
@@ -33,7 +34,7 @@ class PushTest(unittest.TestCase):
                 path = repo / f"file-{index:02}.txt"
                 path.write_text(f"{index}\n")
                 os.utime(path, ns=(1_000_000_000 + index, 1_000_000_000 + index))
-            git(repo, "add", "file-20.txt")
+            git(repo, "add", "-f", "file-20.txt")
 
             builder = BaseBuild.__new__(BaseBuild)
             builder.repo_path = str(repo)
