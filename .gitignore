@@ -8,3 +8,5 @@ example/download/*
 logs
 uv.lock
 tmp
+.coverage
+htmlcov

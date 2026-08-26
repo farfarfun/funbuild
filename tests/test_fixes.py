@@ -14,12 +14,12 @@ from unittest.mock import MagicMock, patch
 import tomlkit
 
 from nltbuild.core import util
-from nltbuild.core.base import BaseBuild, _git_repo_root
+from nltbuild.core.base import BaseBuild, git_repo_root
 from nltbuild.core.cli import nltbuild as cli_entry
 from nltbuild.core.empty_build import EmptyBuild
 from nltbuild.core.poetry_build import PoetryBuild
 from nltbuild.core.registry import get_build
-from nltbuild.core.util import ShellCommandError, parse_version, run_checked
+from nltbuild.core.util import NotAGitRepositoryError, ShellCommandError, parse_version, run_checked
 from nltbuild.core.uv_build import UVBuild
 from nltbuild.core.version_file_build import VersionFileBuild
 
@@ -159,18 +159,20 @@ class RegistryTest(unittest.TestCase):
             (Path(temp) / "pyproject.toml").write_text("[tool.ruff]\nline-length = 120\n", encoding="utf-8")
             cwd = os.getcwd()
             os.chdir(temp)
-            _git_repo_root.cache_clear()
+            git_repo_root.cache_clear()
             try:
                 with patch("nltbuild.core.base.run_shell", return_value=temp):
                     builder = get_build()
             finally:
                 os.chdir(cwd)
-                _git_repo_root.cache_clear()
+                git_repo_root.cache_clear()
             self.assertIsNotNone(builder)
 
     def test_broken_builder_is_skipped_not_fatal(self):
-        _git_repo_root.cache_clear()
-        self.addCleanup(_git_repo_root.cache_clear)
+        git_repo_root.cache_clear()
+        self.addCleanup(git_repo_root.cache_clear)
+        # get_build 会 chdir 到仓库根, 这里没走 repo() 助手, 自己负责还原
+        self.addCleanup(os.chdir, os.getcwd())
         with patch.object(PoetryBuild, "check_type", side_effect=RuntimeError("boom")):
             with patch("nltbuild.core.base.run_shell", return_value="/tmp"):
                 self.assertIsNotNone(get_build())
@@ -186,13 +188,13 @@ class VersionFileBuildTest(unittest.TestCase):
                 (Path(temp) / name).write_text(content, encoding="utf-8")
             cwd = os.getcwd()
             os.chdir(temp)
-            _git_repo_root.cache_clear()
+            git_repo_root.cache_clear()
             try:
                 with patch("nltbuild.core.base.run_shell", return_value=temp):
                     yield Path(temp)
             finally:
                 os.chdir(cwd)
-                _git_repo_root.cache_clear()
+                git_repo_root.cache_clear()
 
     def test_version_file_repo_is_recognized(self):
         with self.repo({"VERSION": "0.1.7\n"}):
@@ -404,12 +406,12 @@ class RepoRootCacheTest(unittest.TestCase):
                 (Path(temp) / name).write_text(content, encoding="utf-8")
             cwd = os.getcwd()
             os.chdir(temp)
-            _git_repo_root.cache_clear()
+            git_repo_root.cache_clear()
             try:
                 yield Path(temp)
             finally:
                 os.chdir(cwd)
-                _git_repo_root.cache_clear()
+                git_repo_root.cache_clear()
 
     def test_git_rev_parse_runs_once_per_detection(self):
         with self.repo({"pyproject.toml": '[project]\nname = "x"\nversion = "1.0.0"\n'}) as root:
@@ -424,6 +426,51 @@ class RepoRootCacheTest(unittest.TestCase):
                 builder = get_build()
         self.assertEqual(builder.repo_path, str(root))
         self.assertNotIn("\n", builder.name)
+
+
+class RepoRootNormalizationTest(unittest.TestCase):
+    """从子目录运行时, 清单探测和构建命令的相对路径全部落空, 会静默退化成
+    EmptyBuild 且退出码为 0 —— 看起来发布成功了, 其实什么都没做。"""
+
+    @contextlib.contextmanager
+    def repo(self, files):
+        with tempfile.TemporaryDirectory() as temp:
+            for name, content in files.items():
+                path = Path(temp) / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(content, encoding="utf-8")
+            cwd = os.getcwd()
+            git_repo_root.cache_clear()
+            try:
+                yield Path(temp)
+            finally:
+                os.chdir(cwd)
+                git_repo_root.cache_clear()
+
+    def test_detection_works_from_subdirectory(self):
+        manifest = '[project]\nname = "x"\nversion = "2.0.0"\n'
+        with self.repo({"pyproject.toml": manifest, "src/pkg/__init__.py": ""}) as root:
+            os.chdir(root / "src" / "pkg")
+            with patch("nltbuild.core.base.run_shell", return_value=str(root)):
+                builder = get_build()
+                self.assertEqual(os.getcwd(), str(root), "应已归一化到仓库根")
+        self.assertNotIsInstance(builder, EmptyBuild)
+        self.assertEqual(builder.version, "2.0.0")
+
+    def test_outside_git_repo_raises_clear_error(self):
+        """原先是 subprocess 抛 FileNotFoundError: '', 完全看不出真正原因。"""
+        with self.repo({"pyproject.toml": '[project]\nname = "x"\nversion = "1.0.0"\n'}) as root:
+            os.chdir(root)
+            with patch("nltbuild.core.base.run_shell", return_value=""):
+                with self.assertRaises(NotAGitRepositoryError):
+                    get_build()
+
+    def test_git_root_pointing_nowhere_raises(self):
+        with self.repo({}) as root:
+            os.chdir(root)
+            with patch("nltbuild.core.base.run_shell", return_value="/nonexistent/repo"):
+                with self.assertRaises(NotAGitRepositoryError):
+                    get_build()
 
 
 class ConfigFormatTest(unittest.TestCase):

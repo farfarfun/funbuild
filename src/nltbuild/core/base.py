@@ -1,30 +1,44 @@
 #!/usr/bin/python3
 
 import os
+import shlex
 import subprocess
 from functools import lru_cache
 
 from funshell import run_shell
 
-from .util import aicommits_commit, has_staged_changes, logger, parse_version, run_checked
+from .util import (
+    NotAGitRepositoryError,
+    aicommits_commit,
+    has_staged_changes,
+    logger,
+    parse_version,
+    run_checked,
+)
 
 
 @lru_cache(maxsize=8)
-def _git_repo_root(cwd: str) -> str:
+def git_repo_root(cwd: str) -> str:
     """仓库根目录。
 
     registry 会依次实例化每个 builder 探测类型 (hybrid 还会再各建一个),
     单次 CLI 调用因此会重复执行同一条 git 命令 8 次。按 cwd 缓存: git 根只取决于
     当前目录, 同一目录下结果恒定, 而以 cwd 为键可保证 chdir 后不会读到旧值。
     """
-    return run_shell("git rev-parse --show-toplevel", printf=False).strip()
+    root = run_shell("git rev-parse --show-toplevel", printf=False).strip()
+    # funshell 在 git 失败时返回空串而非抛异常。放任它会得到 repo_path='',
+    # 直到后面 subprocess(cwd='') 抛出 FileNotFoundError: '' —— 完全看不出
+    # 真正的原因是「这儿不是 git 仓库」。
+    if not root or not os.path.isdir(root):
+        raise NotAGitRepositoryError(f"当前目录不在 git 仓库中: {cwd}")
+    return root
 
 
 class BaseBuild:
     """构建工具的基类"""
 
     def __init__(self, name=None):
-        self.repo_path = _git_repo_root(os.getcwd())
+        self.repo_path = git_repo_root(os.getcwd())
         self.name = name or self.repo_path.split("/")[-1]
         self.version = None
 
@@ -185,9 +199,14 @@ class BaseBuild:
         if not self.version:
             logger.warning("skip tags: version is not set")
             return
+        tag = shlex.quote(f"v{self.version}")
         run_checked(
             [
-                f"git tag --force v{self.version}",
-                "git push --tags",
+                f"git tag --force {tag}",
+                # 只推这一个 tag, 且强制覆盖。`git push --tags` 有两个毛病:
+                # 会把本地所有 tag 一并推上去; 且拒绝更新远端已存在的 tag ——
+                # 与上一行 `git tag --force` 的意图直接矛盾, 重发同一版本时会在
+                # 发布已经成功之后卡在这里报错。
+                f"git push --force origin {tag}",
             ]
         )

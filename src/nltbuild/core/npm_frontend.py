@@ -116,16 +116,11 @@ class NpmFrontendBuild(BaseBuild):
         self.package_json_paths = self._collect_package_json_paths()
         if not self.package_json_paths:
             return False
+        self._sync_primary_state()
+        # 根 pyproject 的版本是整仓主源, 优先于 package.json 自带的版本
         root_ver = root_pyproject_project_version()
         if root_ver is not None:
             self.version = root_ver
-            primary = self.package_json_paths[0]
-            self._pkg = self._load_json_at(primary)
-            self._nltbuild_cfg = self._nltbuild_from_pkg(self._pkg)
-            pkg_dir = os.path.dirname(primary)
-            self._pm = self._detect_package_manager_for_dir(pkg_dir, self._nltbuild_cfg)
-            return True
-        self._sync_primary_state()
         return True
 
     def _write_version(self):

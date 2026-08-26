@@ -5,6 +5,7 @@ import typing
 import typer
 
 from .registry import get_build
+from .util import NotAGitRepositoryError
 
 
 def nltbuild():
@@ -18,7 +19,12 @@ def nltbuild():
 
     def builder():
         if not cached:
-            cached.append(get_build())
+            try:
+                cached.append(get_build())
+            except NotAGitRepositoryError as e:
+                # 裸抛会甩用户一脸 traceback, 而这只是「跑错目录了」
+                typer.secho(f"错误: {e}", fg=typer.colors.RED, err=True)
+                raise typer.Exit(code=1) from None
         return cached[0]
 
     @cli.command()

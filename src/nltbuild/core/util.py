@@ -17,6 +17,10 @@ class ShellCommandError(RuntimeError):
     """shell 命令链执行失败。"""
 
 
+class NotAGitRepositoryError(RuntimeError):
+    """当前目录不在 git 仓库中。"""
+
+
 def load_toml(path: str) -> Any:
     """读取 TOML, 返回可像 dict 一样操作但保留原始排版的文档对象。
 

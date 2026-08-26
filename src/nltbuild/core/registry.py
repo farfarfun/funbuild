@@ -1,7 +1,9 @@
 #!/usr/bin/python3
 
+import os
 from typing import Union
 
+from .base import git_repo_root
 from .empty_build import EmptyBuild
 from .hybrid import UvNpmHybridBuild
 from .npm_frontend import NpmFrontendBuild
@@ -16,6 +18,12 @@ def get_build() -> Union[
     UvNpmHybridBuild, UVBuild, PoetryBuild, PypiBuild, NpmFrontendBuild, VersionFileBuild, EmptyBuild
 ]:
     """获取合适的构建类"""
+    # 先归一化到仓库根: 清单探测 (./pyproject.toml、extbuild/) 和构建命令
+    # (rm -rf dist、uv build --directory .) 全部按相对路径解析。从子目录运行时
+    # 这些路径统统落空, 于是静默退化成 EmptyBuild —— 退出码还是 0, 看起来像
+    # 发布成功了, 实际什么都没做。
+    os.chdir(git_repo_root(os.getcwd()))
+
     # 顺序即优先级: 越靠前越具体。VersionFileBuild 作为最后的真实回退,
     # 只在所有清单类构建都不匹配时才接管; EmptyBuild 永远匹配, 必须垫底。
     builders = [UvNpmHybridBuild, UVBuild, PoetryBuild, PypiBuild, NpmFrontendBuild, VersionFileBuild, EmptyBuild]

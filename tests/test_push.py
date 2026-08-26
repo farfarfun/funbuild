@@ -140,5 +140,72 @@ class CommitMessageTest(unittest.TestCase):
             self.assertEqual(git(repo, "rev-parse", "HEAD"), git(repo, "rev-parse", f"origin/{branch}"))
 
 
+class TagsTest(unittest.TestCase):
+    """回归: `git tag --force` 移动了本地 tag, 但 `git push --tags` 拒绝更新远端
+    已存在的 tag, 于是重发同一版本会在发布成功之后卡在打 tag 这步失败。"""
+
+    @contextlib.contextmanager
+    def repo(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp) / "repo"
+            remote = Path(temp) / "remote.git"
+            repo.mkdir()
+            git(temp, "init", "--bare", str(remote))
+            git(repo, "init")
+            git(repo, "config", "user.name", "Test")
+            git(repo, "config", "user.email", "test@example.com")
+            git(repo, "remote", "add", "origin", str(remote))
+            (repo / "f").write_text("1\n")
+            git(repo, "add", "f")
+            git(repo, "commit", "-m", "c1")
+            git(repo, "push", "-u", "origin", "HEAD")
+
+            builder = BaseBuild.__new__(BaseBuild)
+            builder.repo_path = str(repo)
+            builder.name = "repo"
+            builder.version = "1.0.0"
+            cwd = os.getcwd()
+            os.chdir(repo)
+            try:
+                yield builder, repo, remote
+            finally:
+                os.chdir(cwd)
+
+    def remote_tag(self, remote, tag):
+        return subprocess.run(
+            ["git", "--git-dir", str(remote), "rev-parse", tag],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+
+    def test_tag_is_pushed(self):
+        with self.repo() as (builder, repo, remote):
+            builder.tags()
+            self.assertEqual(self.remote_tag(remote, "v1.0.0"), git(repo, "rev-parse", "HEAD"))
+
+    def test_retagging_same_version_moves_remote_tag(self):
+        """重发同一版本时, 远端 tag 必须跟着移动而不是报错。"""
+        with self.repo() as (builder, repo, remote):
+            builder.tags()
+            (repo / "f").write_text("2\n")
+            git(repo, "commit", "-am", "c2")
+            builder.tags()
+            self.assertEqual(self.remote_tag(remote, "v1.0.0"), git(repo, "rev-parse", "HEAD"))
+
+    def test_unrelated_local_tags_are_not_pushed(self):
+        """`git push --tags` 会把本地所有 tag 都推上去, 只该推本次这一个。"""
+        with self.repo() as (builder, repo, remote):
+            git(repo, "tag", "scratch-local-only")
+            builder.tags()
+            remote_tags = subprocess.run(
+                ["git", "--git-dir", str(remote), "tag", "-l"],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.split()
+            self.assertEqual(remote_tags, ["v1.0.0"])
+
+
 if __name__ == "__main__":
     unittest.main()
