@@ -80,12 +80,29 @@ class UVBuild(BaseBuild):
         旧写法 `[tool.setuptools] license-files = []` 会让 wheel 不带任何许可证文件;
         且 setuptools>=77 下它与 `[project].license-files` 同时存在会直接报错,
         因此这里先把它清掉再写新式字段。
+
+        同理, `License ::` classifier 与 SPDX 的 project.license 也不能共存, 一并清掉。
         """
         tool_setuptools = deep_get(config, "tool", "setuptools")
         if isinstance(tool_setuptools, dict):
             tool_setuptools.pop("license-files", None)
 
         project = config.setdefault("project", {})
+
+        # 下面会写 project.license (SPDX 表达式)。此时若还留着 License classifier,
+        # setuptools>=77 会直接中止构建:
+        #   InvalidConfigError: License classifiers have been superseded by
+        #   license expressions (PEP 639). Please remove: License :: OSI Approved :: ...
+        # 所以必须在写 license 之前把 classifier 摘掉, 否则等于给每个还带
+        # classifier 的仓库埋了一个发版即失败的雷。
+        classifiers = project.get("classifiers")
+        if isinstance(classifiers, list):
+            dropped = [c for c in classifiers if isinstance(c, str) and c.startswith("License ::")]
+            if dropped:
+                logger.info(f"移除已被 PEP 639 取代的 License classifier: {dropped}")
+                for item in dropped:
+                    classifiers.remove(item)
+
         license_value = project.get("license")
         if not (isinstance(license_value, str) and license_value.strip()):
             # 旧的 license = {text = "MIT"} 表写法在 PEP 639 下已废弃, 统一为 SPDX 字符串
