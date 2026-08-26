@@ -13,14 +13,14 @@ def _uv_bundle_out_dir(pkg_dir: str) -> str:
     """多包构建时各包 wheel 输出目录 (相对仓库根), 互不覆盖。"""
     d = os.path.normpath(pkg_dir)
     key = "root" if d in (".", "") else d.replace(os.sep, "_")
-    return os.path.join("dist", "nltbuild", key)
+    return os.path.join("dist", "funbuild", key)
 
 
 def _uv_bundle_out_dir_abs(repo_root: str, pkg_dir: str) -> str:
     """与 _uv_bundle_out_dir 相同位置, 但为绝对路径。
 
     uv build 在指定 --directory 为子目录时, --out-dir 按「包目录」解析相对路径,
-    若传 dist/nltbuild/... 会把产物写到 extbuild/foo/dist/... 而非仓库根下 dist/...,
+    若传 dist/funbuild/... 会把产物写到 extbuild/foo/dist/... 而非仓库根下 dist/...,
     导致后续 uv publish 在根 dist 下找不到文件。传入绝对路径可避免该问题。
     """
     rel = _uv_bundle_out_dir(pkg_dir)
@@ -199,7 +199,7 @@ class UVBuild(BaseBuild):
         return cmds
 
     def _cmd_build(self) -> list[str]:
-        """构建命令: 依次在各包目录构建, wheel 输出到 dist/nltbuild/<唯一子目录>。"""
+        """构建命令: 依次在各包目录构建, wheel 输出到 dist/funbuild/<唯一子目录>。"""
         result = [
             "uv lock --prerelease=allow",
         ]
@@ -234,4 +234,4 @@ class UVBuild(BaseBuild):
 
     def _cmd_install(self) -> list[str]:
         """安装命令: 安装各包构建产物目录下的 wheel。"""
-        return ["uv pip install dist/nltbuild/*/*.whl"]
+        return ["uv pip install dist/funbuild/*/*.whl"]

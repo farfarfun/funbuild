@@ -8,7 +8,7 @@ from .registry import get_build
 from .util import NotAGitRepositoryError
 
 
-def nltbuild():
+def funbuild():
     """主入口函数"""
     cli = typer.Typer(help='build tool for "fun"')
 

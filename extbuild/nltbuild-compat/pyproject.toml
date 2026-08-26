@@ -1,0 +1,14 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nltbuild"
+version = "1.6.66"
+description = "Compatibility package for funbuild"
+requires-python = ">=3.9"
+license = "MIT"
+dependencies = ["funbuild>=1.6.66"]
+
+[project.scripts]
+nltbuild = "funbuild.core:funbuild"

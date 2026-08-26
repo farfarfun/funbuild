@@ -13,15 +13,15 @@ from unittest.mock import MagicMock, patch
 
 import tomlkit
 
-from nltbuild.core import util
-from nltbuild.core.base import BaseBuild, git_repo_root
-from nltbuild.core.cli import nltbuild as cli_entry
-from nltbuild.core.empty_build import EmptyBuild
-from nltbuild.core.poetry_build import PoetryBuild
-from nltbuild.core.registry import get_build
-from nltbuild.core.util import NotAGitRepositoryError, ShellCommandError, parse_version, run_checked
-from nltbuild.core.uv_build import UVBuild
-from nltbuild.core.version_file_build import VersionFileBuild
+from funbuild.core import util
+from funbuild.core.base import BaseBuild, git_repo_root
+from funbuild.core.cli import funbuild as cli_entry
+from funbuild.core.empty_build import EmptyBuild
+from funbuild.core.poetry_build import PoetryBuild
+from funbuild.core.registry import get_build
+from funbuild.core.util import NotAGitRepositoryError, ShellCommandError, parse_version, run_checked
+from funbuild.core.uv_build import UVBuild
+from funbuild.core.version_file_build import VersionFileBuild
 
 
 def make_builder(cls=BaseBuild, version=None, repo_path="/tmp"):
@@ -161,7 +161,7 @@ class RegistryTest(unittest.TestCase):
             os.chdir(temp)
             git_repo_root.cache_clear()
             try:
-                with patch("nltbuild.core.base.run_shell", return_value=temp):
+                with patch("funbuild.core.base.run_shell", return_value=temp):
                     builder = get_build()
             finally:
                 os.chdir(cwd)
@@ -174,7 +174,7 @@ class RegistryTest(unittest.TestCase):
         # get_build 会 chdir 到仓库根, 这里没走 repo() 助手, 自己负责还原
         self.addCleanup(os.chdir, os.getcwd())
         with patch.object(PoetryBuild, "check_type", side_effect=RuntimeError("boom")):
-            with patch("nltbuild.core.base.run_shell", return_value="/tmp"):
+            with patch("funbuild.core.base.run_shell", return_value="/tmp"):
                 self.assertIsNotNone(get_build())
 
 
@@ -190,7 +190,7 @@ class VersionFileBuildTest(unittest.TestCase):
             os.chdir(temp)
             git_repo_root.cache_clear()
             try:
-                with patch("nltbuild.core.base.run_shell", return_value=temp):
+                with patch("funbuild.core.base.run_shell", return_value=temp):
                     yield Path(temp)
             finally:
                 os.chdir(cwd)
@@ -231,7 +231,7 @@ class VersionFileBuildTest(unittest.TestCase):
         # nltlog 走 loguru, 不经 stdlib logging, assertLogs 抓不到它的输出,
         # 因此直接断言 logger 被调用。
         with self.repo({"README.md": "x\n"}):
-            with patch("nltbuild.core.empty_build.logger") as log:
+            with patch("funbuild.core.empty_build.logger") as log:
                 builder = get_build()
         self.assertIsInstance(builder, EmptyBuild)
         self.assertTrue(any("未识别到版本清单" in str(call) for call in log.warning.call_args_list))
@@ -290,8 +290,8 @@ class AicommitsProbeTest(unittest.TestCase):
 
     def test_missing_cli_probed_once(self):
         staged = type("R", (), {"returncode": 1})()
-        with patch("nltbuild.core.util.shutil.which", return_value=None) as which:
-            with patch("nltbuild.core.util.subprocess.run", return_value=staged) as run:
+        with patch("funbuild.core.util.shutil.which", return_value=None) as which:
+            with patch("funbuild.core.util.subprocess.run", return_value=staged) as run:
                 for _ in range(5):
                     self.assertFalse(util.aicommits_commit())
 
@@ -301,8 +301,8 @@ class AicommitsProbeTest(unittest.TestCase):
 
     def test_available_cli_is_invoked(self):
         staged = type("R", (), {"returncode": 1})()
-        with patch("nltbuild.core.util.shutil.which", return_value="/usr/bin/aicommits"):
-            with patch("nltbuild.core.util.subprocess.run", return_value=staged) as run:
+        with patch("funbuild.core.util.shutil.which", return_value="/usr/bin/aicommits"):
+            with patch("funbuild.core.util.subprocess.run", return_value=staged) as run:
                 util.aicommits_commit()
         self.assertTrue([c for c in run.call_args_list if c.args[0][0] == "aicommits"])
 
@@ -353,7 +353,7 @@ class RepairGeneratedMessageTest(unittest.TestCase):
                 return type("R", (), {"stdout": generated, "returncode": 0})()
             return type("R", (), {"stdout": "", "returncode": 0})()
 
-        with patch("nltbuild.core.util.subprocess.run", side_effect=fake_run):
+        with patch("funbuild.core.util.subprocess.run", side_effect=fake_run):
             util._repair_generated_message("/repo", fallback)
         return [c for c in calls if "--amend" in c]
 
@@ -374,8 +374,8 @@ class ReleaseAliasTest(unittest.TestCase):
 
     def invoke(self, argv):
         builder = MagicMock()
-        with patch("nltbuild.core.cli.get_build", return_value=builder):
-            with patch.object(sys, "argv", ["nltbuild", *argv]):
+        with patch("funbuild.core.cli.get_build", return_value=builder):
+            with patch.object(sys, "argv", ["funbuild", *argv]):
                 with contextlib.suppress(SystemExit):
                     cli_entry()
         return builder
@@ -415,14 +415,14 @@ class RepoRootCacheTest(unittest.TestCase):
 
     def test_git_rev_parse_runs_once_per_detection(self):
         with self.repo({"pyproject.toml": '[project]\nname = "x"\nversion = "1.0.0"\n'}) as root:
-            with patch("nltbuild.core.base.run_shell", return_value=str(root)) as shell:
+            with patch("funbuild.core.base.run_shell", return_value=str(root)) as shell:
                 get_build()
         self.assertEqual(shell.call_count, 1, f"git rev-parse 应只执行一次, 实际 {shell.call_count} 次")
 
     def test_repo_path_is_stripped(self):
         """未 strip 时 name 会带换行, 被拼进 project.urls 生成非法 URL。"""
         with self.repo({"pyproject.toml": '[project]\nname = "x"\nversion = "1.0.0"\n'}) as root:
-            with patch("nltbuild.core.base.run_shell", return_value=f"{root}\n"):
+            with patch("funbuild.core.base.run_shell", return_value=f"{root}\n"):
                 builder = get_build()
         self.assertEqual(builder.repo_path, str(root))
         self.assertNotIn("\n", builder.name)
@@ -451,7 +451,7 @@ class RepoRootNormalizationTest(unittest.TestCase):
         manifest = '[project]\nname = "x"\nversion = "2.0.0"\n'
         with self.repo({"pyproject.toml": manifest, "src/pkg/__init__.py": ""}) as root:
             os.chdir(root / "src" / "pkg")
-            with patch("nltbuild.core.base.run_shell", return_value=str(root)):
+            with patch("funbuild.core.base.run_shell", return_value=str(root)):
                 builder = get_build()
                 self.assertEqual(os.getcwd(), str(root), "应已归一化到仓库根")
         self.assertNotIsInstance(builder, EmptyBuild)
@@ -461,14 +461,14 @@ class RepoRootNormalizationTest(unittest.TestCase):
         """原先是 subprocess 抛 FileNotFoundError: '', 完全看不出真正原因。"""
         with self.repo({"pyproject.toml": '[project]\nname = "x"\nversion = "1.0.0"\n'}) as root:
             os.chdir(root)
-            with patch("nltbuild.core.base.run_shell", return_value=""):
+            with patch("funbuild.core.base.run_shell", return_value=""):
                 with self.assertRaises(NotAGitRepositoryError):
                     get_build()
 
     def test_git_root_pointing_nowhere_raises(self):
         with self.repo({}) as root:
             os.chdir(root)
-            with patch("nltbuild.core.base.run_shell", return_value="/nonexistent/repo"):
+            with patch("funbuild.core.base.run_shell", return_value="/nonexistent/repo"):
                 with self.assertRaises(NotAGitRepositoryError):
                     get_build()
 
@@ -497,10 +497,10 @@ class ConfigFormatTest(unittest.TestCase):
 
     def test_non_fun_project_is_untouched(self):
         builder = make_builder(UVBuild)
-        builder.name = "nltbuild"
-        config = {"project": {"name": "nltbuild"}}
+        builder.name = "otherpackage"
+        config = {"project": {"name": "otherpackage"}}
         builder.config_format(config)
-        self.assertEqual(config, {"project": {"name": "nltbuild"}})
+        self.assertEqual(config, {"project": {"name": "otherpackage"}})
 
 
 class LicenseMetadataTest(unittest.TestCase):
@@ -566,7 +566,7 @@ class WriteVersionEncodingTest(unittest.TestCase):
             )
             builder = make_builder(UVBuild, version="1.0.1")
             builder.toml_paths = [str(path)]
-            with patch("nltbuild.core.uv_build.sync_all_manifest_versions"):
+            with patch("funbuild.core.uv_build.sync_all_manifest_versions"):
                 builder._write_version()
             reloaded = tomlkit.parse(path.read_text(encoding="utf-8"))
         self.assertEqual(reloaded["project"]["version"], "1.0.1")
@@ -586,7 +586,7 @@ requires = ["setuptools>=77"]
 
 [project]
 name = "demo"
-# 版本号由 nltbuild 维护, 不要手改
+# 版本号由 funbuild 维护, 不要手改
 version = "1.0.0"
 dependencies = [
     "requests>=2.0",  # HTTP 客户端
@@ -606,7 +606,7 @@ line-length = 120
             path.write_text(self.SOURCE, encoding="utf-8")
             builder = make_builder(UVBuild, version="1.0.1")
             builder.toml_paths = [str(path)]
-            with patch("nltbuild.core.uv_build.sync_all_manifest_versions"):
+            with patch("funbuild.core.uv_build.sync_all_manifest_versions"):
                 builder._write_version()
             return path.read_text(encoding="utf-8")
 
@@ -619,7 +619,7 @@ line-length = 120
 
     def test_comments_survive(self):
         after = self.upgrade_in_place()
-        self.assertIn("# 版本号由 nltbuild 维护, 不要手改", after)
+        self.assertIn("# 版本号由 funbuild 维护, 不要手改", after)
         self.assertIn("# HTTP 客户端", after)
 
     def test_multiline_array_is_not_collapsed(self):
@@ -636,8 +636,8 @@ class LazyBuilderTest(unittest.TestCase):
     """`--help` 不该触发仓库探测: 既慢, 又会让非 git 目录下连帮助都打不开。"""
 
     def run_cli(self, argv):
-        with patch("nltbuild.core.cli.get_build") as get:
-            with patch.object(sys, "argv", ["nltbuild", *argv]):
+        with patch("funbuild.core.cli.get_build") as get:
+            with patch.object(sys, "argv", ["funbuild", *argv]):
                 with contextlib.suppress(SystemExit):
                     cli_entry()
         return get
@@ -657,8 +657,8 @@ class TagCommandTest(unittest.TestCase):
 
     def invoke(self, argv):
         builder = MagicMock()
-        with patch("nltbuild.core.cli.get_build", return_value=builder):
-            with patch.object(sys, "argv", ["nltbuild", *argv]):
+        with patch("funbuild.core.cli.get_build", return_value=builder):
+            with patch.object(sys, "argv", ["funbuild", *argv]):
                 with contextlib.suppress(SystemExit):
                     cli_entry()
         return builder

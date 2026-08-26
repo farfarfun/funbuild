@@ -19,7 +19,7 @@ class NpmFrontendBuild(BaseBuild):
         self.package_json_paths: list[str] = []
         self._pkg: dict = {}
         self._pm = "npm"
-        self._nltbuild_cfg: dict = {}
+        self._funbuild_cfg: dict = {}
 
     @staticmethod
     def _load_json_at(path: str) -> dict:
@@ -27,8 +27,8 @@ class NpmFrontendBuild(BaseBuild):
             return json.load(f)
 
     @staticmethod
-    def _nltbuild_from_pkg(pkg: dict) -> dict:
-        raw = pkg.get("nltbuild")
+    def _funbuild_from_pkg(pkg: dict) -> dict:
+        raw = pkg.get("funbuild", pkg.get("nltbuild"))
         if isinstance(raw, dict):
             return raw
         if raw is True:
@@ -40,7 +40,7 @@ class NpmFrontendBuild(BaseBuild):
         ver = pkg.get("version")
         if not isinstance(ver, str) or not ver.strip():
             return False
-        cfg = NpmFrontendBuild._nltbuild_from_pkg(pkg)
+        cfg = NpmFrontendBuild._funbuild_from_pkg(pkg)
         scripts = pkg.get("scripts") or {}
         custom_build = isinstance(cfg.get("build"), str) and bool(cfg["build"].strip())
         has_build = isinstance(scripts, dict) and "build" in scripts
@@ -105,12 +105,12 @@ class NpmFrontendBuild(BaseBuild):
     def _sync_primary_state(self):
         primary = self.package_json_paths[0]
         self._pkg = self._load_json_at(primary)
-        self._nltbuild_cfg = self._nltbuild_from_pkg(self._pkg)
+        self._funbuild_cfg = self._funbuild_from_pkg(self._pkg)
         ver = self._pkg.get("version")
         if isinstance(ver, str) and ver.strip():
             self.version = ver.strip()
         pkg_dir = os.path.dirname(primary)
-        self._pm = self._detect_package_manager_for_dir(pkg_dir, self._nltbuild_cfg)
+        self._pm = self._detect_package_manager_for_dir(pkg_dir, self._funbuild_cfg)
 
     def check_type(self) -> bool:
         self.package_json_paths = self._collect_package_json_paths()
@@ -159,7 +159,7 @@ class NpmFrontendBuild(BaseBuild):
         for pj in self.package_json_paths:
             pkg_dir = os.path.dirname(pj)
             pkg = self._load_json_at(pj)
-            cfg = self._nltbuild_from_pkg(pkg)
+            cfg = self._funbuild_from_pkg(pkg)
             pm = self._detect_package_manager_for_dir(pkg_dir, cfg)
             for cmd in self._install_cmds_for_dir(pkg_dir, cfg, pm):
                 out.append(self._in_dir_shell(pkg_dir, cmd))
@@ -176,7 +176,7 @@ class NpmFrontendBuild(BaseBuild):
         for pj in self.package_json_paths:
             pkg_dir = os.path.dirname(pj)
             pkg = self._load_json_at(pj)
-            cfg = self._nltbuild_from_pkg(pkg)
+            cfg = self._funbuild_from_pkg(pkg)
             pm = self._detect_package_manager_for_dir(pkg_dir, cfg)
             for c in self._install_cmds_for_dir(pkg_dir, cfg, pm):
                 cmds.append(self._in_dir_shell(pkg_dir, c))
@@ -187,7 +187,7 @@ class NpmFrontendBuild(BaseBuild):
 
     def _publish_cmds_for_package(self, pj: str) -> list[str]:
         pkg = self._load_json_at(pj)
-        cfg = self._nltbuild_from_pkg(pkg)
+        cfg = self._funbuild_from_pkg(pkg)
         pkg_dir = os.path.dirname(pj)
         pm = self._detect_package_manager_for_dir(pkg_dir, cfg)
         if cfg.get("publish") is False:
@@ -196,7 +196,7 @@ class NpmFrontendBuild(BaseBuild):
         if isinstance(custom, str) and custom.strip():
             return [self._in_dir_shell(pkg_dir, custom.strip())]
         if pkg.get("private") is True:
-            logger.info(f"{pj}: private=true, skip publish; set nltbuild.publish to override")
+            logger.info(f"{pj}: private=true, skip publish; set funbuild.publish to override")
             return []
         if pm == "pnpm":
             pub = "pnpm publish --no-git-checks"
@@ -213,7 +213,7 @@ class NpmFrontendBuild(BaseBuild):
         return out
 
     def _cmd_delete(self) -> list[str]:
-        dirs = self._nltbuild_cfg.get("cleanDirs")
+        dirs = self._funbuild_cfg.get("cleanDirs")
         if isinstance(dirs, list) and dirs:
             return [f"rm -rf {d}" for d in dirs if isinstance(d, str) and d.strip()]
         return [

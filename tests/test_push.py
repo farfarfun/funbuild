@@ -6,8 +6,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from nltbuild.core import util
-from nltbuild.core.base import BaseBuild
+from funbuild.core import util
+from funbuild.core.base import BaseBuild
 
 AICOMMITS_MESSAGE = "chore: ai generated message"
 
@@ -61,7 +61,7 @@ class PushTest(unittest.TestCase):
             builder = BaseBuild.__new__(BaseBuild)
             builder.repo_path = str(repo)
             builder.name = "repo"
-            with patch("nltbuild.core.base.aicommits_commit", return_value=False):
+            with patch("funbuild.core.base.aicommits_commit", return_value=False):
                 builder.push(message="batch", batch_size=20)
 
             commits = git(repo, "rev-list", "--reverse", "HEAD").splitlines()
@@ -75,7 +75,7 @@ class CommitMessageTest(unittest.TestCase):
     """显式传入的 commit 信息必须被使用。
 
     回归: push 无条件调用 aicommits, 而 aicommits 完全无视外部传入的信息、
-    自己生成一条, 于是 `nltbuild build "我的信息"` 提交出来的是别的内容。
+    自己生成一条, 于是 `funbuild build "我的信息"` 提交出来的是别的内容。
     """
 
     @contextlib.contextmanager
@@ -124,7 +124,7 @@ class CommitMessageTest(unittest.TestCase):
                 patch.object(BaseBuild, "pull"),
                 patch.object(BaseBuild, "upgrade"),
                 patch.object(BaseBuild, "tags"),
-                patch("nltbuild.core.base.run_checked"),
+                patch("funbuild.core.base.run_checked"),
             ):
                 builder.build(message="发布 1.2.3")
             subjects = self.subjects(repo)

@@ -10,7 +10,7 @@ import tomlkit
 from funshell import run_shell_list
 from nltlog import getLogger
 
-logger = getLogger("nltbuild")
+logger = getLogger("funbuild")
 
 
 class ShellCommandError(RuntimeError):

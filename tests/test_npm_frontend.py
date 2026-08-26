@@ -11,8 +11,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from nltbuild.core.base import git_repo_root
-from nltbuild.core.npm_frontend import NpmFrontendBuild
+from funbuild.core.base import git_repo_root
+from funbuild.core.npm_frontend import NpmFrontendBuild
 
 
 def make_builder():
@@ -24,7 +24,7 @@ def make_builder():
     builder.package_json_paths = []
     builder._pkg = {}
     builder._pm = "npm"
-    builder._nltbuild_cfg = {}
+    builder._funbuild_cfg = {}
     return builder
 
 
@@ -73,15 +73,21 @@ class CheckTypeTest(unittest.TestCase):
             self.assertEqual(builder.version, "2.5.0")
 
     def test_primary_state_is_populated(self):
-        """check_type 必须把 _pkg/_pm/_nltbuild_cfg 一并填好, 后续命令生成依赖它们。"""
+        """check_type 必须把 _pkg/_pm/_funbuild_cfg 一并填好, 后续命令生成依赖它们。"""
         manifest = '[project]\nname = "x"\nversion = "2.5.0"\n'
-        pkg = dict(PKG, nltbuild={"packageManager": "pnpm"})
+        pkg = dict(PKG, funbuild={"packageManager": "pnpm"})
         with project({"package.json": pkg, "pyproject.toml": manifest}):
             builder = make_builder()
             builder.check_type()
             self.assertEqual(builder._pm, "pnpm")
             self.assertEqual(builder._pkg["name"], "web")
-            self.assertEqual(builder._nltbuild_cfg, {"packageManager": "pnpm"})
+            self.assertEqual(builder._funbuild_cfg, {"packageManager": "pnpm"})
+
+    def test_legacy_nltbuild_config_is_supported(self):
+        self.assertEqual(
+            NpmFrontendBuild._funbuild_from_pkg({"nltbuild": {"build": "make web"}}),
+            {"build": "make web"},
+        )
 
     def test_malformed_package_json_is_skipped(self):
         with project({"package.json": "{ not json"}):
@@ -132,7 +138,7 @@ class CommandTest(unittest.TestCase):
         self.assertIn("npm install", build)
 
     def test_custom_build_command_overrides(self):
-        pkg = dict(PKG, nltbuild={"build": "make web"})
+        pkg = dict(PKG, funbuild={"build": "make web"})
         _, build, _ = self.builder_for({"package.json": pkg})
         self.assertIn("make web", build)
 
@@ -142,7 +148,7 @@ class CommandTest(unittest.TestCase):
         self.assertEqual(publish, [])
 
     def test_publish_false_disables_publish(self):
-        pkg = dict(PKG, nltbuild={"publish": False})
+        pkg = dict(PKG, funbuild={"publish": False})
         _, _, publish = self.builder_for({"package.json": pkg})
         self.assertEqual(publish, [])
 
@@ -163,7 +169,7 @@ class WriteVersionTest(unittest.TestCase):
             builder = make_builder()
             builder.check_type()
             builder.version = "3.1.4"
-            with patch("nltbuild.core.npm_frontend.sync_all_manifest_versions"):
+            with patch("funbuild.core.npm_frontend.sync_all_manifest_versions"):
                 builder._write_version()
             for rel in ("package.json", "extbuild/a/package.json"):
                 data = json.loads((root / rel).read_text(encoding="utf-8"))
@@ -175,7 +181,7 @@ class WriteVersionTest(unittest.TestCase):
             builder = make_builder()
             builder.check_type()
             builder.version = "3.1.4"
-            with patch("nltbuild.core.npm_frontend.sync_all_manifest_versions"):
+            with patch("funbuild.core.npm_frontend.sync_all_manifest_versions"):
                 builder._write_version()
             data = json.loads((root / "package.json").read_text(encoding="utf-8"))
         self.assertEqual(data["description"], "中文描述")
