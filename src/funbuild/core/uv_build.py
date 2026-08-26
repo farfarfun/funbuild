@@ -101,7 +101,7 @@ class UVBuild(BaseBuild):
 
     def config_format(self, config, pkg_dir="."):
         """格式化配置文件"""
-        if not self.name.startswith("fun"):
+        if not self.is_org_repo:
             return
         self._apply_license_metadata(config, pkg_dir)
         deep_create(
@@ -203,7 +203,7 @@ class UVBuild(BaseBuild):
         result = [
             "uv lock --prerelease=allow",
         ]
-        if self.name.startswith("fun"):
+        if self.is_org_repo:
             result.append("uvx ruff format")
             result.append("uvx ruff clean")
         seen_pkg: set[str] = set()

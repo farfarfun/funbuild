@@ -34,6 +34,31 @@ def git_repo_root(cwd: str) -> str:
     return root
 
 
+@lru_cache(maxsize=8)
+def is_org_repo(repo_path: str, org: str = "farfarfun") -> bool:
+    """这个仓库是否属于本组织。
+
+    以前用 `name.startswith("fun")` 判断, 但组织经历过 note* -> fun* -> 部分 nlt*
+    的改名, 前缀早就不能代表归属: nltlog / nltcache / nltspec / nltdeploy 都是自有
+    仓库却被判成外部, 于是拿不到许可证元数据、authors、urls, 也不走 ruff 格式化。
+    真正要问的是 remote 指向谁, 就直接问 remote。
+    """
+    try:
+        out = subprocess.run(
+            ["git", "-C", repo_path, "remote", "get-url", "origin"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except Exception:
+        return False
+    if out.returncode != 0:
+        return False
+    url = out.stdout.strip().lower()
+    # 同时匹配 https://github.com/<org>/x 与 git@github.com:<org>/x
+    return f"/{org}/" in url or f":{org}/" in url
+
+
 class BaseBuild:
     """构建工具的基类"""
 
@@ -41,6 +66,14 @@ class BaseBuild:
         self.repo_path = git_repo_root(os.getcwd())
         self.name = name or self.repo_path.split("/")[-1]
         self.version = None
+
+    @property
+    def is_org_repo(self) -> bool:
+        """仓库归属本组织时, 才自动套用组织约定 (许可证 / authors / urls / ruff)。"""
+        if is_org_repo(self.repo_path):
+            return True
+        # remote 缺失或临时不可读时退回旧的前缀判断, 保证离线也能工作
+        return self.name.startswith(("fun", "nlt", "note"))
 
     def check_type(self) -> bool:
         """检查是否为当前构建类型"""
