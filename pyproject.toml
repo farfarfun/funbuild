@@ -43,6 +43,9 @@ line-length = 120
 
 [tool.pytest.ini_options]
 testpaths = [ "tests",]
+# 必须显式指向 src: 否则 pytest 会 import 到全局装着的 funbuild, 测的是已发布的
+# 旧版本而不是工作区代码——改动跑绿了也毫无意义。
+pythonpath = [ "src",]
 
 [tool.uv]
 package = true
