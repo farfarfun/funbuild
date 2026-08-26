@@ -1,7 +1,7 @@
 """覆盖「这个仓库是否属于本组织」的判定。
 
 以前用 `name.startswith("fun")`，组织经历 note* -> fun* -> 部分 nlt* 改名后
-这个前缀不再代表归属：nltlog / nltcache / nltspec / nltdeploy 是自有仓库却被
+这个前缀不再代表归属：farlog / nltcache / nltspec / nltdeploy 是自有仓库却被
 判成外部，于是拿不到许可证元数据、authors、urls，也不走 ruff 格式化。
 """
 
@@ -25,7 +25,7 @@ def repo(tmp_path):
 @pytest.mark.parametrize(
     "url",
     [
-        "https://github.com/farfarfun/nltlog.git",
+        "https://github.com/farfarfun/farlog.git",
         "https://github.com/farfarfun/nltcache",
         "git@github.com:farfarfun/nltspec.git",
         "https://github.com/FarFarFun/nltdeploy.git",  # 大小写不敏感

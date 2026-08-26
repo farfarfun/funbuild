@@ -8,7 +8,7 @@ from typing import Any, Optional
 
 import tomlkit
 from funshell import run_shell_list
-from nltlog import getLogger
+from farlog import getLogger
 
 logger = getLogger("funbuild")
 

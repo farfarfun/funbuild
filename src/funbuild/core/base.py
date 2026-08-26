@@ -39,7 +39,7 @@ def is_org_repo(repo_path: str, org: str = "farfarfun") -> bool:
     """这个仓库是否属于本组织。
 
     以前用 `name.startswith("fun")` 判断, 但组织经历过 note* -> fun* -> 部分 nlt*
-    的改名, 前缀早就不能代表归属: nltlog / nltcache / nltspec / nltdeploy 都是自有
+    的改名, 前缀早就不能代表归属: farlog / nltcache / nltspec / nltdeploy 都是自有
     仓库却被判成外部, 于是拿不到许可证元数据、authors、urls, 也不走 ruff 格式化。
     真正要问的是 remote 指向谁, 就直接问 remote。
     """
