@@ -78,7 +78,51 @@ def has_staged_changes(cwd=None) -> bool:
     return subprocess.run(["git", "diff", "--staged", "--quiet"], cwd=cwd, check=False).returncode != 0
 
 
-def aicommits_commit(cwd=None) -> bool:
+# 推理模型 (deepseek-reasoner、QwQ、R1 等) 会把思维链包在 <think> 里输出, aicommits
+# 不做剥离就拿去提交, git 历史里于是出现整条正文只有 "<think>" 的提交。
+_THINK_BLOCK_RE = re.compile(r"<\s*(think|thinking|reasoning)\s*>.*?<\s*/\s*\1\s*>", re.IGNORECASE | re.DOTALL)
+_THINK_CLOSE_RE = re.compile(r"<\s*/\s*(?:think|thinking|reasoning)\s*>", re.IGNORECASE)
+_THINK_OPEN_RE = re.compile(r"<\s*(?:think|thinking|reasoning)\s*>", re.IGNORECASE)
+_FENCE_LINE_RE = re.compile(r"^\s*```.*$", re.MULTILINE)
+
+
+def sanitize_commit_message(message: str) -> str:
+    """剥掉思维链标记与 markdown 围栏, 返回可用作 commit 信息的正文。
+
+    真正的结论通常在 </think> 之后; 若只剩下未闭合的 <think>, 说明输出被截断,
+    整段都不可用, 返回空串由调用方决定回退。
+    """
+    text = _THINK_BLOCK_RE.sub("", message or "")
+    # 落单的闭合标记: 结论在它之后
+    closes = list(_THINK_CLOSE_RE.finditer(text))
+    if closes:
+        text = text[closes[-1].end() :]
+    # 落单的开启标记: 其后是被截断的思维链, 整段丢弃
+    opens = _THINK_OPEN_RE.search(text)
+    if opens:
+        text = text[: opens.start()]
+    text = _FENCE_LINE_RE.sub("", text)
+    return "\n".join(line.rstrip() for line in text.strip().splitlines()).strip()
+
+
+def _last_commit_message(cwd=None) -> str:
+    return subprocess.run(
+        ["git", "log", "-1", "--format=%B"], cwd=cwd, check=True, stdout=subprocess.PIPE, text=True
+    ).stdout
+
+
+def _repair_generated_message(cwd, fallback: str) -> None:
+    """aicommits 刚提交完就检查信息, 含思维链标记则就地 amend 修正。"""
+    original = _last_commit_message(cwd)
+    cleaned = sanitize_commit_message(original)
+    if cleaned == original.strip():
+        return
+    replacement = cleaned or fallback
+    logger.warning(f"aicommits 生成的信息含推理标记 (模型可能是 reasoner), 已修正为: {replacement!r}")
+    subprocess.run(["git", "commit", "--amend", "-m", replacement], cwd=cwd, check=True)
+
+
+def aicommits_commit(cwd=None, fallback: str = "add") -> bool:
     """让 aicommits 依据暂存内容自行生成信息并提交, 成功返回 True。
 
     只在调用方没有指定 commit 信息时才该走这条路: aicommits 完全无视外部传入的
@@ -95,7 +139,10 @@ def aicommits_commit(cwd=None) -> bool:
     except Exception as e:
         logger.error(f"aicommits commit failed: {e}")
         return False
-    return not has_staged_changes(cwd)
+    if has_staged_changes(cwd):
+        return False
+    _repair_generated_message(cwd, fallback)
+    return True
 
 
 def deep_get(data: dict, *args):

@@ -305,6 +305,68 @@ class AicommitsProbeTest(unittest.TestCase):
         self.assertTrue([c for c in run.call_args_list if c.args[0][0] == "aicommits"])
 
 
+class SanitizeCommitMessageTest(unittest.TestCase):
+    """回归: aicommits 配了 deepseek-reasoner 等推理模型时, 生成的 commit 信息整条
+    就是 `<think>`, 直接进了 git 历史。"""
+
+    def clean(self, text):
+        return util.sanitize_commit_message(text)
+
+    def test_bare_think_tag_yields_empty(self):
+        """实际发生过的情况: 正文只有 <think>, 无任何可用内容。"""
+        self.assertEqual(self.clean("<think>\n"), "")
+
+    def test_conclusion_after_closing_tag_is_kept(self):
+        self.assertEqual(self.clean("<think>\n盘算一番\n</think>\nfix: 修正版本解析"), "fix: 修正版本解析")
+
+    def test_unclosed_think_block_is_dropped(self):
+        self.assertEqual(self.clean("<think>\n推理被截断了..."), "")
+
+    def test_orphan_closing_tag_keeps_tail(self):
+        self.assertEqual(self.clean("想了很久\n</think>\nfeat: 新增 X"), "feat: 新增 X")
+
+    def test_markdown_fence_is_stripped(self):
+        self.assertEqual(self.clean("```\nchore: 更新依赖\n```"), "chore: 更新依赖")
+
+    def test_normal_message_is_untouched(self):
+        self.assertEqual(self.clean("fix: 修了个 bug"), "fix: 修了个 bug")
+
+    def test_multiline_body_is_preserved(self):
+        self.assertEqual(self.clean("feat: 标题\n\n正文说明"), "feat: 标题\n\n正文说明")
+
+    def test_empty_input_is_safe(self):
+        self.assertEqual(self.clean(""), "")
+        self.assertEqual(self.clean(None), "")
+
+
+class RepairGeneratedMessageTest(unittest.TestCase):
+    """信息被污染时必须就地 amend, 不能让它留在历史里。"""
+
+    def repair(self, generated, fallback="add"):
+        calls = []
+
+        def fake_run(cmd, **kwargs):
+            calls.append(cmd)
+            if cmd[:2] == ["git", "log"]:
+                return type("R", (), {"stdout": generated, "returncode": 0})()
+            return type("R", (), {"stdout": "", "returncode": 0})()
+
+        with patch("nltbuild.core.util.subprocess.run", side_effect=fake_run):
+            util._repair_generated_message("/repo", fallback)
+        return [c for c in calls if "--amend" in c]
+
+    def test_think_only_message_is_amended_to_fallback(self):
+        amends = self.repair("<think>\n", fallback="add")
+        self.assertEqual(amends, [["git", "commit", "--amend", "-m", "add"]])
+
+    def test_recoverable_message_is_amended_to_conclusion(self):
+        amends = self.repair("<think>想了想</think>\nfix: 真正的信息")
+        self.assertEqual(amends, [["git", "commit", "--amend", "-m", "fix: 真正的信息"]])
+
+    def test_clean_message_is_left_alone(self):
+        self.assertEqual(self.repair("fix: 一条正常的信息\n"), [])
+
+
 class ReleaseAliasTest(unittest.TestCase):
     """release 必须与 build 走同一条流水线。"""
 
