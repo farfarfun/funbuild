@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "funbuild"
-version = "1.6.68"
+version = "1.6.69"
 description = "Python / 前端仓库的一键发版工具：版本递增、构建、发布、打 tag，自动适配 uv / Poetry / npm"
 readme = "README.md"
 requires-python = ">=3.9"

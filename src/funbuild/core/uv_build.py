@@ -100,8 +100,9 @@ class UVBuild(BaseBuild):
             dropped = [c for c in classifiers if isinstance(c, str) and c.startswith("License ::")]
             if dropped:
                 logger.info(f"移除已被 PEP 639 取代的 License classifier: {dropped}")
-                for item in dropped:
-                    classifiers.remove(item)
+                # 必须整体赋值: tomlkit 的 Array 上逐项 remove() 不会同步底层
+                # 的排版容器, 结果是渲染出来的 TOML 里 classifier 依然在。
+                project["classifiers"] = [c for c in classifiers if c not in dropped]
 
         license_value = project.get("license")
         if not (isinstance(license_value, str) and license_value.strip()):
