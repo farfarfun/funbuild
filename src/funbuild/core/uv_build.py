@@ -34,6 +34,15 @@ class UVBuild(BaseBuild):
         super().__init__(*args, **kwargs)
         self.toml_paths = ["./pyproject.toml"]
 
+        explicit_name = kwargs.get("name") or (args[0] if args else None)
+        if not explicit_name and os.path.exists(self.toml_paths[0]):
+            # self.name 默认取自目录名, 但 pyproject 改名(rename 场景常见)后目录名
+            # 往往还没同步, 会让 config_format 用旧名重新生成 urls/description。
+            # [project].name 才是包的真实身份, 存在就优先用它。
+            pkg_name = deep_get(load_toml(self.toml_paths[0]), "project", "name")
+            if isinstance(pkg_name, str) and pkg_name.strip():
+                self.name = pkg_name.strip()
+
         for root in ("extbuild", "exts"):
             if os.path.isdir(root):
                 for file in sorted(os.listdir(root)):

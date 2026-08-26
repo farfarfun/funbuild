@@ -228,7 +228,7 @@ class VersionFileBuildTest(unittest.TestCase):
         self.assertEqual(builder.version, "2.0.0")
 
     def test_no_manifest_warns_before_falling_back(self):
-        # nltlog 走 loguru, 不经 stdlib logging, assertLogs 抓不到它的输出,
+        # farlog 走 loguru, 不经 stdlib logging, assertLogs 抓不到它的输出,
         # 因此直接断言 logger 被调用。
         with self.repo({"README.md": "x\n"}):
             with patch("funbuild.core.empty_build.logger") as log:
@@ -668,6 +668,43 @@ class TagCommandTest(unittest.TestCase):
 
     def test_old_tags_name_is_gone(self):
         self.invoke(["tags"]).tags.assert_not_called()
+
+
+class UVBuildNameTest(unittest.TestCase):
+    """rename 场景: pyproject 已改名但目录还没同步, self.name 不该用目录名。"""
+
+    def test_name_prefers_pyproject_over_stale_dir_name(self):
+        with tempfile.TemporaryDirectory() as temp:
+            # 目录本身模拟"还没改名"的旧路径
+            old_dir = Path(temp) / "nltcache"
+            old_dir.mkdir()
+            (old_dir / "pyproject.toml").write_text('[project]\nname = "farcache"\n', encoding="utf-8")
+            cwd = os.getcwd()
+            os.chdir(old_dir)
+            git_repo_root.cache_clear()
+            try:
+                with patch("funbuild.core.base.run_shell", return_value=str(old_dir)):
+                    builder = UVBuild()
+            finally:
+                os.chdir(cwd)
+                git_repo_root.cache_clear()
+            self.assertEqual(builder.name, "farcache")
+
+    def test_explicit_name_still_wins(self):
+        with tempfile.TemporaryDirectory() as temp:
+            old_dir = Path(temp) / "nltcache"
+            old_dir.mkdir()
+            (old_dir / "pyproject.toml").write_text('[project]\nname = "farcache"\n', encoding="utf-8")
+            cwd = os.getcwd()
+            os.chdir(old_dir)
+            git_repo_root.cache_clear()
+            try:
+                with patch("funbuild.core.base.run_shell", return_value=str(old_dir)):
+                    builder = UVBuild(name="explicit")
+            finally:
+                os.chdir(cwd)
+                git_repo_root.cache_clear()
+            self.assertEqual(builder.name, "explicit")
 
 
 if __name__ == "__main__":
