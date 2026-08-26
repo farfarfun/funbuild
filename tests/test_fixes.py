@@ -11,8 +11,10 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import tomlkit
+
 from nltbuild.core import util
-from nltbuild.core.base import BaseBuild
+from nltbuild.core.base import BaseBuild, _git_repo_root
 from nltbuild.core.cli import nltbuild as cli_entry
 from nltbuild.core.empty_build import EmptyBuild
 from nltbuild.core.poetry_build import PoetryBuild
@@ -157,14 +159,18 @@ class RegistryTest(unittest.TestCase):
             (Path(temp) / "pyproject.toml").write_text("[tool.ruff]\nline-length = 120\n", encoding="utf-8")
             cwd = os.getcwd()
             os.chdir(temp)
+            _git_repo_root.cache_clear()
             try:
                 with patch("nltbuild.core.base.run_shell", return_value=temp):
                     builder = get_build()
             finally:
                 os.chdir(cwd)
+                _git_repo_root.cache_clear()
             self.assertIsNotNone(builder)
 
     def test_broken_builder_is_skipped_not_fatal(self):
+        _git_repo_root.cache_clear()
+        self.addCleanup(_git_repo_root.cache_clear)
         with patch.object(PoetryBuild, "check_type", side_effect=RuntimeError("boom")):
             with patch("nltbuild.core.base.run_shell", return_value="/tmp"):
                 self.assertIsNotNone(get_build())
@@ -180,11 +186,13 @@ class VersionFileBuildTest(unittest.TestCase):
                 (Path(temp) / name).write_text(content, encoding="utf-8")
             cwd = os.getcwd()
             os.chdir(temp)
+            _git_repo_root.cache_clear()
             try:
                 with patch("nltbuild.core.base.run_shell", return_value=temp):
                     yield Path(temp)
             finally:
                 os.chdir(cwd)
+                _git_repo_root.cache_clear()
 
     def test_version_file_repo_is_recognized(self):
         with self.repo({"VERSION": "0.1.7\n"}):
@@ -218,11 +226,13 @@ class VersionFileBuildTest(unittest.TestCase):
         self.assertEqual(builder.version, "2.0.0")
 
     def test_no_manifest_warns_before_falling_back(self):
+        # nltlog 走 loguru, 不经 stdlib logging, assertLogs 抓不到它的输出,
+        # 因此直接断言 logger 被调用。
         with self.repo({"README.md": "x\n"}):
-            with self.assertLogs("nltbuild", level="WARNING") as logs:
+            with patch("nltbuild.core.empty_build.logger") as log:
                 builder = get_build()
         self.assertIsInstance(builder, EmptyBuild)
-        self.assertTrue(any("未识别到版本清单" in m for m in logs.output))
+        self.assertTrue(any("未识别到版本清单" in str(call) for call in log.warning.call_args_list))
 
 
 class PublishCredentialsTest(unittest.TestCase):
@@ -281,7 +291,7 @@ class AicommitsProbeTest(unittest.TestCase):
         with patch("nltbuild.core.util.shutil.which", return_value=None) as which:
             with patch("nltbuild.core.util.subprocess.run", return_value=staged) as run:
                 for _ in range(5):
-                    self.assertFalse(util.opencommit_commit("add"))
+                    self.assertFalse(util.aicommits_commit())
 
         self.assertEqual(which.call_count, 1, "aicommits 可用性只应探测一次")
         aicommits_calls = [c for c in run.call_args_list if c.args[0][0] == "aicommits"]
@@ -291,7 +301,7 @@ class AicommitsProbeTest(unittest.TestCase):
         staged = type("R", (), {"returncode": 1})()
         with patch("nltbuild.core.util.shutil.which", return_value="/usr/bin/aicommits"):
             with patch("nltbuild.core.util.subprocess.run", return_value=staged) as run:
-                util.opencommit_commit("add")
+                util.aicommits_commit()
         self.assertTrue([c for c in run.call_args_list if c.args[0][0] == "aicommits"])
 
 
@@ -308,7 +318,7 @@ class ReleaseAliasTest(unittest.TestCase):
 
     def test_release_dispatches_to_build(self):
         builder = self.invoke(["release"])
-        builder.build.assert_called_once_with(message="add")
+        builder.build.assert_called_once_with(message=None)
 
     def test_release_accepts_positional_message(self):
         builder = self.invoke(["release", "ship it"])
@@ -319,6 +329,218 @@ class ReleaseAliasTest(unittest.TestCase):
             self.invoke(["release", "same"]).build.call_args,
             self.invoke(["build", "same"]).build.call_args,
         )
+
+
+class RepoRootCacheTest(unittest.TestCase):
+    """registry 会实例化 7 个 builder (hybrid 再建 2 个), 每个都跑一次
+    `git rev-parse`, 单次 CLI 调用因此有 8 次 subprocess。现按 cwd 缓存为 1 次。"""
+
+    @contextlib.contextmanager
+    def repo(self, files):
+        with tempfile.TemporaryDirectory() as temp:
+            for name, content in files.items():
+                (Path(temp) / name).write_text(content, encoding="utf-8")
+            cwd = os.getcwd()
+            os.chdir(temp)
+            _git_repo_root.cache_clear()
+            try:
+                yield Path(temp)
+            finally:
+                os.chdir(cwd)
+                _git_repo_root.cache_clear()
+
+    def test_git_rev_parse_runs_once_per_detection(self):
+        with self.repo({"pyproject.toml": '[project]\nname = "x"\nversion = "1.0.0"\n'}) as root:
+            with patch("nltbuild.core.base.run_shell", return_value=str(root)) as shell:
+                get_build()
+        self.assertEqual(shell.call_count, 1, f"git rev-parse 应只执行一次, 实际 {shell.call_count} 次")
+
+    def test_repo_path_is_stripped(self):
+        """未 strip 时 name 会带换行, 被拼进 project.urls 生成非法 URL。"""
+        with self.repo({"pyproject.toml": '[project]\nname = "x"\nversion = "1.0.0"\n'}) as root:
+            with patch("nltbuild.core.base.run_shell", return_value=f"{root}\n"):
+                builder = get_build()
+        self.assertEqual(builder.repo_path, str(root))
+        self.assertNotIn("\n", builder.name)
+
+
+class ConfigFormatTest(unittest.TestCase):
+    """config_format 曾在 [project] 缺 description 时抛 KeyError, 使 upgrade 整个失败。"""
+
+    def format_with(self, project_table):
+        builder = make_builder(UVBuild)
+        builder.name = "funx"
+        config = {"project": project_table}
+        builder.config_format(config)
+        return config
+
+    def test_missing_description_does_not_raise(self):
+        config = self.format_with({"name": "funx", "version": "1.0.0"})
+        self.assertEqual(config["project"]["description"], "funx")
+
+    def test_placeholder_description_is_replaced(self):
+        config = self.format_with({"description": "Add your description here"})
+        self.assertEqual(config["project"]["description"], "funx")
+
+    def test_real_description_is_preserved(self):
+        config = self.format_with({"description": "a real description"})
+        self.assertEqual(config["project"]["description"], "a real description")
+
+    def test_non_fun_project_is_untouched(self):
+        builder = make_builder(UVBuild)
+        builder.name = "nltbuild"
+        config = {"project": {"name": "nltbuild"}}
+        builder.config_format(config)
+        self.assertEqual(config, {"project": {"name": "nltbuild"}})
+
+
+class LicenseMetadataTest(unittest.TestCase):
+    """许可证声明改用 PEP 639: 旧的 [tool.setuptools] license-files = [] 既让 wheel
+    不带许可证, 又会在 setuptools>=77 下与 [project].license-files 冲突报错。"""
+
+    @contextlib.contextmanager
+    def pkg(self, files):
+        with tempfile.TemporaryDirectory() as temp:
+            for name, content in files.items():
+                (Path(temp) / name).write_text(content, encoding="utf-8")
+            yield temp
+
+    def apply(self, config, pkg_dir):
+        builder = make_builder(UVBuild)
+        builder.name = "funx"
+        builder.config_format(config, pkg_dir)
+        return config
+
+    def test_stale_setuptools_license_files_is_removed(self):
+        with self.pkg({"LICENSE": "MIT\n"}) as d:
+            config = self.apply({"project": {}, "tool": {"setuptools": {"license-files": []}}}, d)
+        self.assertNotIn("license-files", config["tool"]["setuptools"])
+        self.assertEqual(config["project"]["license-files"], ["LICENSE"])
+        self.assertEqual(config["project"]["license"], "MIT")
+
+    def test_legacy_license_table_becomes_spdx_string(self):
+        with self.pkg({"LICENSE": "x\n"}) as d:
+            config = self.apply({"project": {"license": {"text": "Apache-2.0"}}}, d)
+        self.assertEqual(config["project"]["license"], "Apache-2.0")
+
+    def test_existing_spdx_string_is_preserved(self):
+        with self.pkg({"LICENSE": "x\n"}) as d:
+            config = self.apply({"project": {"license": "BSD-3-Clause"}}, d)
+        self.assertEqual(config["project"]["license"], "BSD-3-Clause")
+
+    def test_missing_license_file_declares_nothing(self):
+        """声明了 license-files 却找不到文件会让 setuptools 构建失败。"""
+        with self.pkg({}) as d:
+            config = self.apply({"project": {"license-files": ["LICENSE"]}}, d)
+        self.assertNotIn("license-files", config["project"])
+
+    def test_other_license_filenames_are_found(self):
+        with self.pkg({"COPYING": "x\n"}) as d:
+            config = self.apply({"project": {}}, d)
+        self.assertEqual(config["project"]["license-files"], ["COPYING"])
+
+    def test_setuptools_table_without_license_files_survives(self):
+        with self.pkg({"LICENSE": "x\n"}) as d:
+            config = self.apply({"project": {}, "tool": {"setuptools": {"packages": ["a"]}}}, d)
+        self.assertEqual(config["tool"]["setuptools"], {"packages": ["a"]})
+
+
+class WriteVersionEncodingTest(unittest.TestCase):
+    """作者名是中文, 写文件必须显式 UTF-8, 否则非 UTF-8 locale 下会写坏清单。"""
+
+    def test_pyproject_roundtrips_non_ascii(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "pyproject.toml"
+            path.write_text(
+                '[project]\nname = "x"\nversion = "1.0.0"\ndescription = "中文描述"\n',
+                encoding="utf-8",
+            )
+            builder = make_builder(UVBuild, version="1.0.1")
+            builder.toml_paths = [str(path)]
+            with patch("nltbuild.core.uv_build.sync_all_manifest_versions"):
+                builder._write_version()
+            reloaded = tomlkit.parse(path.read_text(encoding="utf-8"))
+        self.assertEqual(reloaded["project"]["version"], "1.0.1")
+        self.assertEqual(reloaded["project"]["description"], "中文描述")
+
+
+class TomlFormattingPreservedTest(unittest.TestCase):
+    """upgrade 只改版本号, 不得重写整个 pyproject.toml。
+
+    旧实现用 toml.load/dump 往返, 会静默删掉全部注释、把多行数组压成一行、
+    并重排 table 顺序 —— 每次发版都在 pyproject.toml 上留下满屏无关 diff。
+    """
+
+    SOURCE = """\
+[build-system]
+requires = ["setuptools>=77"]
+
+[project]
+name = "demo"
+# 版本号由 nltbuild 维护, 不要手改
+version = "1.0.0"
+dependencies = [
+    "requests>=2.0",  # HTTP 客户端
+    "click",
+]
+
+[dependency-groups]
+dev = ["pytest>=8"]
+
+[tool.ruff]
+line-length = 120
+"""
+
+    def upgrade_in_place(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "pyproject.toml"
+            path.write_text(self.SOURCE, encoding="utf-8")
+            builder = make_builder(UVBuild, version="1.0.1")
+            builder.toml_paths = [str(path)]
+            with patch("nltbuild.core.uv_build.sync_all_manifest_versions"):
+                builder._write_version()
+            return path.read_text(encoding="utf-8")
+
+    def test_only_the_version_line_changes(self):
+        before = self.SOURCE.splitlines()
+        after = self.upgrade_in_place().splitlines()
+        differing = [(a, b) for a, b in zip(before, after) if a != b]
+        self.assertEqual(len(before), len(after), "行数不应变化")
+        self.assertEqual(differing, [('version = "1.0.0"', 'version = "1.0.1"')])
+
+    def test_comments_survive(self):
+        after = self.upgrade_in_place()
+        self.assertIn("# 版本号由 nltbuild 维护, 不要手改", after)
+        self.assertIn("# HTTP 客户端", after)
+
+    def test_multiline_array_is_not_collapsed(self):
+        self.assertIn('    "requests>=2.0",  # HTTP 客户端\n', self.upgrade_in_place())
+
+    def test_table_order_is_stable(self):
+        def tables(text):
+            return [line for line in text.splitlines() if line.startswith("[")]
+
+        self.assertEqual(tables(self.upgrade_in_place()), tables(self.SOURCE))
+
+
+class LazyBuilderTest(unittest.TestCase):
+    """`--help` 不该触发仓库探测: 既慢, 又会让非 git 目录下连帮助都打不开。"""
+
+    def run_cli(self, argv):
+        with patch("nltbuild.core.cli.get_build") as get:
+            with patch.object(sys, "argv", ["nltbuild", *argv]):
+                with contextlib.suppress(SystemExit):
+                    cli_entry()
+        return get
+
+    def test_help_does_not_detect_builder(self):
+        self.run_cli(["--help"]).assert_not_called()
+
+    def test_unknown_command_does_not_detect_builder(self):
+        self.run_cli(["definitely-not-a-command"]).assert_not_called()
+
+    def test_real_command_detects_builder_once(self):
+        self.assertEqual(self.run_cli(["upgrade"]).call_count, 1)
 
 
 class TagCommandTest(unittest.TestCase):

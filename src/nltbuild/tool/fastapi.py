@@ -3,7 +3,7 @@ from functools import wraps
 _api_routes_registry = []
 
 
-class api_route(object):
+class api_route:
     def __init__(self, path, **kwargs):
         self._path = path
         self._kwargs = kwargs

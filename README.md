@@ -181,12 +181,12 @@ cd nltbuild
 uv pip install -e .
 # 或: pip install -e .
 
-# 跑测试
-python -m pytest tests/ -q
+# 跑测试 (pytest 已在 dev 依赖组, uv 会自动装)
+uv run pytest -q
 
 # 格式化与静态检查
-ruff format .
-ruff check . --fix
+uvx ruff format .
+uvx ruff check . --fix
 ```
 
 ## 许可证

@@ -15,14 +15,15 @@ class PypiBuild(BaseBuild):
 
     def check_type(self):
         """检查是否为PyPI项目"""
-        if os.path.exists(self.version_path):
-            self.version = open(self.version_path, "r").read().strip()  # noqa: UP015
-            return True
-        return False
+        if not os.path.exists(self.version_path):
+            return False
+        with open(self.version_path, encoding="utf-8") as f:
+            self.version = f.read().strip()
+        return True
 
     def _write_version(self):
         """写入版本号到文件"""
-        with open(self.version_path, "w") as f:
+        with open(self.version_path, "w", encoding="utf-8") as f:
             f.write(self.version)
         sync_all_manifest_versions(self.version)
 

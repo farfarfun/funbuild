@@ -2,10 +2,8 @@
 
 import os
 
-import toml
-
 from .base import BaseBuild
-from .util import deep_get, logger
+from .util import deep_get, dump_toml, load_toml, logger
 from .version_sync import sync_all_manifest_versions
 
 
@@ -25,7 +23,7 @@ class PoetryBuild(BaseBuild):
         if not os.path.exists(self.toml_path):
             return False
         try:
-            a = toml.load(self.toml_path)
+            a = load_toml(self.toml_path)
         except Exception as e:
             logger.warning(f"skip poetry check, cannot parse {self.toml_path}: {e}")
             return False
@@ -37,10 +35,9 @@ class PoetryBuild(BaseBuild):
 
     def _write_version(self):
         """写入版本号到pyproject.toml"""
-        a = toml.load(self.toml_path)
+        a = load_toml(self.toml_path)
         a["tool"]["poetry"]["version"] = self.version
-        with open(self.toml_path, "w") as f:
-            toml.dump(a, f)
+        dump_toml(a, self.toml_path)
         sync_all_manifest_versions(self.version)
 
     def _cmd_publish(self) -> list[str]:

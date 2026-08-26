@@ -4,10 +4,8 @@ import os
 import shlex
 from configparser import ConfigParser
 
-import toml
-
 from .base import BaseBuild
-from .util import deep_create, deep_get, logger
+from .util import deep_create, deep_get, dump_toml, load_toml, logger
 from .version_sync import root_pyproject_project_version, sync_all_manifest_versions
 
 
@@ -49,7 +47,7 @@ class UVBuild(BaseBuild):
         """检查是否为UV项目; 版本始终以根目录 [project].version 为主。"""
         if not os.path.exists(self.toml_paths[0]):
             return False
-        a = toml.load(self.toml_paths[0])
+        a = load_toml(self.toml_paths[0])
         if "project" not in a:
             return False
         rv = root_pyproject_project_version()
@@ -64,21 +62,48 @@ class UVBuild(BaseBuild):
         """写入版本号到所有pyproject.toml"""
         for toml_path in self.toml_paths:
             try:
-                config = toml.load(toml_path)
-                self.config_format(config)
+                config = load_toml(toml_path)
+                self.config_format(config, os.path.dirname(toml_path) or ".")
                 config["project"]["version"] = self.version
-                with open(toml_path, "w") as f:
-                    toml.dump(config, f)
+                dump_toml(config, toml_path)
             except Exception as e:
                 logger.error(f"Failed to update version in {toml_path}: {e}")
                 raise
         sync_all_manifest_versions(self.version)
 
-    def config_format(self, config):
+    # LICENSE 文件的常见命名, 用于填充 PEP 639 的 project.license-files
+    LICENSE_FILE_NAMES = ("LICENSE", "LICENSE.txt", "LICENSE.md", "COPYING")
+
+    def _apply_license_metadata(self, config, pkg_dir="."):
+        """按 PEP 639 (setuptools>=77) 声明许可证。
+
+        旧写法 `[tool.setuptools] license-files = []` 会让 wheel 不带任何许可证文件;
+        且 setuptools>=77 下它与 `[project].license-files` 同时存在会直接报错,
+        因此这里先把它清掉再写新式字段。
+        """
+        tool_setuptools = deep_get(config, "tool", "setuptools")
+        if isinstance(tool_setuptools, dict):
+            tool_setuptools.pop("license-files", None)
+
+        project = config.setdefault("project", {})
+        license_value = project.get("license")
+        if not (isinstance(license_value, str) and license_value.strip()):
+            # 旧的 license = {text = "MIT"} 表写法在 PEP 639 下已废弃, 统一为 SPDX 字符串
+            text = license_value.get("text") if isinstance(license_value, dict) else None
+            project["license"] = text.strip() if isinstance(text, str) and text.strip() else "MIT"
+
+        found = [name for name in self.LICENSE_FILE_NAMES if os.path.isfile(os.path.join(pkg_dir, name))]
+        if found:
+            project["license-files"] = found
+        else:
+            # 声明了却找不到文件同样会让 setuptools 构建失败
+            project.pop("license-files", None)
+
+    def config_format(self, config, pkg_dir="."):
         """格式化配置文件"""
         if not self.name.startswith("fun"):
             return
-        deep_create(config, "tool", "setuptools", key="license-files", value=[])
+        self._apply_license_metadata(config, pkg_dir)
         deep_create(
             config,
             "project",
@@ -107,7 +132,10 @@ class UVBuild(BaseBuild):
                 "Releases": f"https://github.com/farfarfun/{self.name}/releases",
             },
         )
-        if "Add your description here" in config["project"]["description"]:
+        # description 是可选字段: uv init 之外的模板未必写它, 直接下标会抛
+        # KeyError 并让整个 upgrade 失败。
+        description = deep_get(config, "project", "description")
+        if not isinstance(description, str) or "Add your description here" in description:
             deep_create(config, "project", key="description", value=f"{self.name}")
 
     def _cmd_delete(self) -> list[str]:
@@ -153,7 +181,7 @@ class UVBuild(BaseBuild):
                     server = servers[0]
 
         if os.path.exists(self.toml_paths[0]):
-            a = toml.load(self.toml_paths[0])
+            a = load_toml(self.toml_paths[0])
             server = deep_get(a, "tool", "uv", "index", 0, "name") or server
         logger.info(f"public server: {server}")
         self._export_publish_credentials(config[server] if config.has_section(server) else {})

@@ -1,10 +1,16 @@
+[build-system]
+requires = [ "setuptools>=77",]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "nltbuild"
-version = "1.6.59"
+version = "1.6.60"
 description = "nltbuild"
 readme = "README.md"
 requires-python = ">=3.9"
-dependencies = [ "uv>=0.8.4", "ruff>=0.12.7", "toml>=0.10.2", "typer-slim", "nltlog>=1.0.11", "funshell>=1.0.2",]
+license = "MIT"
+license-files = [ "LICENSE",]
+dependencies = [ "uv>=0.8.4", "tomlkit>=0.13.2", "typer-slim", "nltlog>=1.0.11", "funshell>=1.0.2",]
 keywords = [ "build", "requirements", "packaging", "uv",]
 [[project.authors]]
 name = "牛哥"
@@ -22,23 +28,23 @@ email = "niuliangtao@qq.com"
 name = "farfarfun"
 email = "farfarfun@qq.com"
 
-[project.license]
-text = "MIT"
-
 [project.scripts]
 nltbuild = "nltbuild.core:nltbuild"
 
 [project.urls]
 Organization = "https://github.com/farfarfun"
-Repository = "https://github.com/farfarfun/funbuild"
-Releases = "https://github.com/farfarfun/funbuild/releases"
+Repository = "https://github.com/farfarfun/nltbuild"
+Releases = "https://github.com/farfarfun/nltbuild/releases"
+
+[dependency-groups]
+dev = [ "pytest>=8", "ruff>=0.12.7",]
 
 [tool.ruff]
 indent-width = 4
 line-length = 120
 
-[tool.setuptools]
-license-files = []
+[tool.pytest.ini_options]
+testpaths = [ "tests",]
 
 [tool.uv]
 package = true

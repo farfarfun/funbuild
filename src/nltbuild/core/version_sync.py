@@ -4,9 +4,7 @@ import json
 import os
 from typing import Optional
 
-import toml
-
-from .util import logger
+from .util import dump_toml, load_toml, logger
 
 
 def _iter_pyproject_toml_paths() -> list[str]:
@@ -24,7 +22,7 @@ def _iter_pyproject_toml_paths() -> list[str]:
 
 def _pyproject_supports_version_sync(path: str) -> bool:
     try:
-        cfg = toml.load(path)
+        cfg = load_toml(path)
     except Exception:
         return False
     proj = cfg.get("project")
@@ -70,7 +68,7 @@ def _collect_package_json_paths_for_version_sync() -> list[str]:
 
 
 def _sync_pyproject_version_file(path: str, version: str) -> None:
-    config = toml.load(path)
+    config = load_toml(path)
     changed = False
     proj = config.get("project")
     if isinstance(proj, dict) and "version" in proj:
@@ -84,8 +82,7 @@ def _sync_pyproject_version_file(path: str, version: str) -> None:
             changed = True
     if not changed:
         return
-    with open(path, "w", encoding="utf-8") as f:
-        toml.dump(config, f)
+    dump_toml(config, path)
 
 
 def _sync_package_json_version_file(path: str, version: str) -> None:
@@ -103,7 +100,7 @@ def root_pyproject_project_version() -> Optional[str]:
     if not os.path.isfile(path):
         return None
     try:
-        cfg = toml.load(path)
+        cfg = load_toml(path)
     except Exception:
         return None
     proj = cfg.get("project")

@@ -2,17 +2,29 @@
 
 import os
 import subprocess
+from functools import lru_cache
 
 from funshell import run_shell
 
-from .util import logger, opencommit_commit, parse_version, run_checked
+from .util import aicommits_commit, has_staged_changes, logger, parse_version, run_checked
+
+
+@lru_cache(maxsize=8)
+def _git_repo_root(cwd: str) -> str:
+    """仓库根目录。
+
+    registry 会依次实例化每个 builder 探测类型 (hybrid 还会再各建一个),
+    单次 CLI 调用因此会重复执行同一条 git 命令 8 次。按 cwd 缓存: git 根只取决于
+    当前目录, 同一目录下结果恒定, 而以 cwd 为键可保证 chdir 后不会读到旧值。
+    """
+    return run_shell("git rev-parse --show-toplevel", printf=False).strip()
 
 
 class BaseBuild:
     """构建工具的基类"""
 
     def __init__(self, name=None):
-        self.repo_path = run_shell("git rev-parse --show-toplevel", printf=False)
+        self.repo_path = _git_repo_root(os.getcwd())
         self.name = name or self.repo_path.split("/")[-1]
         self.version = None
 
@@ -93,8 +105,12 @@ class BaseBuild:
             index += 1
         return sorted(changes)
 
-    def push(self, message="add", batch_size=20, *args, **kwargs):
-        """推送代码"""
+    def push(self, message=None, batch_size=20, *args, **kwargs):
+        """推送代码。
+
+        message 为 None 时交给 aicommits 依据改动自动生成信息; 显式传入则原样使用
+        —— aicommits 会无视外部信息自己生成一条, 因此指定了信息就不能再走它。
+        """
         logger.info(f"{self.name} push")
         if batch_size < 1:
             raise ValueError("batch_size must be at least 1")
@@ -105,8 +121,13 @@ class BaseBuild:
         for start in range(0, len(changes), batch_size):
             paths = list(dict.fromkeys(path for change in changes[start : start + batch_size] for path in change[2]))
             subprocess.run(["git", "add", "-A", "-f", "--", *paths], cwd=self.repo_path, check=True)
-            if not opencommit_commit(message, cwd=self.repo_path):
-                subprocess.run(["git", "commit", "-m", message], cwd=self.repo_path, check=True)
+            # 本批内容可能已被上一次提交带走 (如 aicommits 提交了全部暂存内容),
+            # 此时 git commit 会因无内容可提交而失败, 直接跳过。
+            if not has_staged_changes(self.repo_path):
+                continue
+            if message is None and aicommits_commit(cwd=self.repo_path):
+                continue
+            subprocess.run(["git", "commit", "-m", message or "add"], cwd=self.repo_path, check=True)
         subprocess.run(["git", "push"], cwd=self.repo_path, check=True)
 
     def install(self, *args, **kwargs):
@@ -114,7 +135,7 @@ class BaseBuild:
         logger.info(f"{self.name} install")
         run_checked(self._cmd_build() + self._cmd_install() + self._cmd_delete())
 
-    def build(self, message="add", *args, **kwargs):
+    def build(self, message=None, *args, **kwargs):
         """构建发布流程"""
         logger.info(f"{self.name} build")
         self.pull()

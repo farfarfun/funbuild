@@ -4,8 +4,9 @@ import re
 import shutil
 import subprocess
 from functools import lru_cache
-from typing import Optional
+from typing import Any, Optional
 
+import tomlkit
 from funshell import run_shell_list
 from nltlog import getLogger
 
@@ -14,6 +15,23 @@ logger = getLogger("nltbuild")
 
 class ShellCommandError(RuntimeError):
     """shell 命令链执行失败。"""
+
+
+def load_toml(path: str) -> Any:
+    """读取 TOML, 返回可像 dict 一样操作但保留原始排版的文档对象。
+
+    必须用 tomlkit 而非 toml: 后者的 load/dump 往返会丢掉全部注释、把多行数组
+    压成一行、并按字典顺序重排 table。upgrade 每次只改一个版本号, 却会因此重写
+    整个 pyproject.toml, 既污染 diff 也会静默删除用户写的注释。
+    """
+    with open(path, encoding="utf-8") as f:
+        return tomlkit.load(f)
+
+
+def dump_toml(document: Any, path: str) -> None:
+    """写回 TOML, 只有被修改的字段会变, 其余排版原样保留。"""
+    with open(path, "w", encoding="utf-8") as f:
+        tomlkit.dump(document, f)
 
 
 def run_checked(commands: list[str], *, cwd: Optional[str] = None) -> None:
@@ -55,9 +73,18 @@ def _aicommits_available() -> bool:
     return False
 
 
-def opencommit_commit(default_message: str = "add", cwd=None) -> bool:
-    """使用 aicommits CLI 自动提交, 成功返回 True。"""
-    if subprocess.run(["git", "diff", "--staged", "--quiet"], cwd=cwd, check=False).returncode == 0:
+def has_staged_changes(cwd=None) -> bool:
+    """暂存区是否有待提交内容。"""
+    return subprocess.run(["git", "diff", "--staged", "--quiet"], cwd=cwd, check=False).returncode != 0
+
+
+def aicommits_commit(cwd=None) -> bool:
+    """让 aicommits 依据暂存内容自行生成信息并提交, 成功返回 True。
+
+    只在调用方没有指定 commit 信息时才该走这条路: aicommits 完全无视外部传入的
+    信息, 用它提交等于丢弃用户显式给出的信息。
+    """
+    if not has_staged_changes(cwd):
         logger.warning("No staged changes")
         return False
     if not _aicommits_available():
@@ -67,9 +94,8 @@ def opencommit_commit(default_message: str = "add", cwd=None) -> bool:
         subprocess.run(["aicommits", "--yes"], cwd=cwd, check=True)
     except Exception as e:
         logger.error(f"aicommits commit failed: {e}")
-        logger.info(f"fallback to default commit message: {default_message}")
         return False
-    return subprocess.run(["git", "diff", "--staged", "--quiet"], cwd=cwd, check=False).returncode == 0
+    return not has_staged_changes(cwd)
 
 
 def deep_get(data: dict, *args):

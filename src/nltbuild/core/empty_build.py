@@ -24,7 +24,7 @@ class EmptyBuild(BaseBuild):
     def _write_version(self):
         pass
 
-    def config_format(self, config):
+    def config_format(self, config, pkg_dir="."):
         pass
 
     def _cmd_delete(self) -> list[str]:
