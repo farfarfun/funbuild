@@ -83,10 +83,10 @@ class CheckTypeTest(unittest.TestCase):
             self.assertEqual(builder._pkg["name"], "web")
             self.assertEqual(builder._funbuild_cfg, {"packageManager": "pnpm"})
 
-    def test_legacy_nltbuild_config_is_supported(self):
+    def test_legacy_nltbuild_config_is_ignored(self):
         self.assertEqual(
             NpmFrontendBuild._funbuild_from_pkg({"nltbuild": {"build": "make web"}}),
-            {"build": "make web"},
+            {},
         )
 
     def test_malformed_package_json_is_skipped(self):

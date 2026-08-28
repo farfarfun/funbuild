@@ -28,7 +28,7 @@ class NpmFrontendBuild(BaseBuild):
 
     @staticmethod
     def _funbuild_from_pkg(pkg: dict) -> dict:
-        raw = pkg.get("funbuild", pkg.get("nltbuild"))
+        raw = pkg.get("funbuild")
         if isinstance(raw, dict):
             return raw
         if raw is True:

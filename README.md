@@ -6,8 +6,6 @@
 
 **funbuild** 是面向 Python / 混合仓库的构建与发布辅助工具：根据项目结构自动选择构建策略（UV、Poetry、旧式 PyPI 脚本、`package.json` 前端包及混合模式等），串联版本递增、构建、安装校验、发布与 Git 标签等常见流程。
 
-原 `nltbuild` 已迁回 `funbuild`；旧包、命令和 `package.json` 配置键保留兼容入口。
-
 ## 特性
 
 - **多构建策略**：按仓库布局自动匹配 `UVBuild`、`PoetryBuild`、`PypiBuild`、`NpmFrontendBuild`、`UvNpmHybridBuild` 等实现，无需手写切换逻辑。
