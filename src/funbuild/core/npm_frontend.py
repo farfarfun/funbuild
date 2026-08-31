@@ -36,6 +36,16 @@ class NpmFrontendBuild(BaseBuild):
         return {}
 
     @staticmethod
+    def _package_has_bin(pkg: dict) -> bool:
+        """带 bin 字段的包是要 npm install -g 的 CLI, 不是纯前端应用。"""
+        bin_field = pkg.get("bin")
+        if isinstance(bin_field, str):
+            return bool(bin_field.strip())
+        if isinstance(bin_field, dict):
+            return bool(bin_field)
+        return False
+
+    @staticmethod
     def _package_qualifies(pkg: dict) -> bool:
         ver = pkg.get("version")
         if not isinstance(ver, str) or not ver.strip():
@@ -154,6 +164,21 @@ class NpmFrontendBuild(BaseBuild):
             return "yarn run build"
         return f"{pm} run build"
 
+    def _global_install_cmd_for(self, cfg: dict, pm: str) -> str:
+        """把当前目录构建产物打包再全局装上, 而不是 npm/pnpm install -g . ——
+        后者在新版 npm/pnpm 下会变成软链到源码目录, 绕开 package.json 的
+        files 字段, 装上的东西跟真实发布产物对不上。"""
+        custom = cfg.get("globalInstall")
+        if isinstance(custom, str) and custom.strip():
+            return custom.strip()
+        if pm == "pnpm":
+            pack = "pnpm pack"
+        elif pm == "yarn":
+            pack = "yarn pack"
+        else:
+            pack = "npm pack"
+        return f'{pack} && npm install -g "$(ls -t *.tgz | head -n1)" && rm -f *.tgz'
+
     def _cmd_build(self) -> list[str]:
         out: list[str] = []
         for pj in self.package_json_paths:
@@ -167,23 +192,51 @@ class NpmFrontendBuild(BaseBuild):
         return out
 
     def install(self, *args, **kwargs):
+        """装依赖; 对带 bin 字段的 CLI 包再构建并本地全局装一份, 让 <cli> 命令
+        反映当前工作树的代码, 跟 UVBuild 那边 build->本地装 wheel 的路数对齐。"""
         logger.info(f"{self.name} install (frontend dependencies)")
         if not self.package_json_paths:
             self.package_json_paths = self._collect_package_json_paths()
         if not self.package_json_paths:
             return
-        cmds: list[str] = []
+        dep_cmds: list[str] = []
         for pj in self.package_json_paths:
             pkg_dir = os.path.dirname(pj)
             pkg = self._load_json_at(pj)
             cfg = self._funbuild_from_pkg(pkg)
             pm = self._detect_package_manager_for_dir(pkg_dir, cfg)
             for c in self._install_cmds_for_dir(pkg_dir, cfg, pm):
-                cmds.append(self._in_dir_shell(pkg_dir, c))
-        run_checked(cmds)
+                dep_cmds.append(self._in_dir_shell(pkg_dir, c))
+        run_checked(dep_cmds)
+
+        build_cmds: list[str] = []
+        for pj in self.package_json_paths:
+            pkg_dir = os.path.dirname(pj)
+            pkg = self._load_json_at(pj)
+            if not self._package_has_bin(pkg):
+                continue
+            cfg = self._funbuild_from_pkg(pkg)
+            pm = self._detect_package_manager_for_dir(pkg_dir, cfg)
+            build_cmds.append(self._in_dir_shell(pkg_dir, self._build_cmd_for(cfg, pm)))
+        if build_cmds:
+            run_checked(build_cmds)
+            run_checked(self._cmd_install())
 
     def _cmd_install(self) -> list[str]:
-        return []
+        """带 bin 字段的包才本地全局装一份: 构建产物先 pack 成 tgz 再
+        npm install -g, 不用 npm/pnpm install -g . 避免装成源码软链。"""
+        out: list[str] = []
+        for pj in self.package_json_paths:
+            pkg_dir = os.path.dirname(pj)
+            pkg = self._load_json_at(pj)
+            if not self._package_has_bin(pkg):
+                continue
+            cfg = self._funbuild_from_pkg(pkg)
+            if cfg.get("globalInstall") is False:
+                continue
+            pm = self._detect_package_manager_for_dir(pkg_dir, cfg)
+            out.append(self._in_dir_shell(pkg_dir, self._global_install_cmd_for(cfg, pm)))
+        return out
 
     def _publish_cmds_for_package(self, pj: str) -> list[str]:
         pkg = self._load_json_at(pj)
