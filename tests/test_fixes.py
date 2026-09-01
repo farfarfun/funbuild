@@ -396,8 +396,8 @@ class ReleaseAliasTest(unittest.TestCase):
 
 
 class RepoRootCacheTest(unittest.TestCase):
-    """registry 会实例化 7 个 builder (hybrid 再建 2 个), 每个都跑一次
-    `git rev-parse`, 单次 CLI 调用因此有 8 次 subprocess。现按 cwd 缓存为 1 次。"""
+    """registry 会实例化 8 个 builder (hybrid 再建 2 个), 每个都跑一次
+    `git rev-parse`, 单次 CLI 调用因此有 9 次 subprocess。现按 cwd 缓存为 1 次。"""
 
     @contextlib.contextmanager
     def repo(self, files):
