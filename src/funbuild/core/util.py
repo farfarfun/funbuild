@@ -4,7 +4,7 @@ import re
 import shutil
 import subprocess
 from functools import lru_cache
-from typing import Any, Optional
+from typing import Any
 
 import tomlkit
 from funshell import run_shell_list
@@ -38,7 +38,7 @@ def dump_toml(document: Any, path: str) -> None:
         tomlkit.dump(document, f)
 
 
-def run_checked(commands: list[str], *, cwd: Optional[str] = None) -> None:
+def run_checked(commands: list[str], *, cwd: str | None = None) -> None:
     """执行 shell 命令链, 任一条失败即抛出 ShellCommandError。
 
     funshell.run_shell_list(printf=True) 只把退出码当字符串返回、异常时返回

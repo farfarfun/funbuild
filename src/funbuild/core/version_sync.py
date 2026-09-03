@@ -3,8 +3,6 @@
 import json
 import os
 import re
-from typing import Optional
-
 from .util import dump_toml, load_toml, logger
 
 # 形如 `version: 1.0.0+42`, 可能带引号与行内注释; 只替换 major.minor.patch 部分,
@@ -156,7 +154,7 @@ def _sync_package_json_version_file(path: str, version: str) -> None:
         f.write("\n")
 
 
-def root_pyproject_project_version() -> Optional[str]:
+def root_pyproject_project_version() -> str | None:
     """根目录 pyproject.toml 中 [project].version, 作为整仓版本主源。"""
     path = "./pyproject.toml"
     if not os.path.isfile(path):

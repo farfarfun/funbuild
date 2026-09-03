@@ -1,7 +1,5 @@
 #!/usr/bin/python3
 
-from typing import Optional
-
 from .base import BaseBuild
 from .npm_frontend import NpmFrontendBuild
 from .util import logger, run_checked
@@ -13,8 +11,8 @@ class UvNpmHybridBuild(BaseBuild):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._uv: Optional[UVBuild] = None
-        self._npm: Optional[NpmFrontendBuild] = None
+        self._uv: UVBuild | None = None
+        self._npm: NpmFrontendBuild | None = None
 
     def check_type(self) -> bool:
         uv = UVBuild()

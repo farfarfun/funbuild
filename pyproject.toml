@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
 license-files = ["LICENSE"]
-dependencies = [ "uv>=0.8.4", "tomlkit>=0.13.2", "pyyaml>=6.0", "typer-slim", "farlog>=1.0.11", "funshell>=1.0.2",]
+dependencies = [ "uv>=0.8.4", "tomlkit>=0.13.2", "pyyaml>=6.0", "typer-slim>=0.24.0", "farlog>=1.0.11", "funshell>=1.0.2",]
 keywords = [ "build", "requirements", "packaging", "uv",]
 [[project.authors]]
 name = "牛哥"

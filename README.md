@@ -1,7 +1,7 @@
 # funbuild
 
 [![PyPI version](https://badge.fury.io/py/funbuild.svg)](https://badge.fury.io/py/funbuild)
-[![Python](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
+[![Python](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 **funbuild** 是面向 Python / 混合仓库的构建与发布辅助工具：根据项目结构自动选择构建策略（UV、Poetry、旧式 PyPI 脚本、`package.json` 前端包、Flutter 及混合模式等），串联版本递增、构建、安装校验、发布与 Git 标签等常见流程。
@@ -57,7 +57,7 @@ funbuild:
 
 ## 系统要求
 
-- Python 3.9+
+- Python 3.10+
 - Git（版本管理与标签推送）
 - 可选：`aicommits`（`npm install -g aicommits`）。装了则 `push` 用它生成提交信息，没装则回退到 `message` 参数的值，不影响流程。
 - Flutter 项目需要本机装好 `flutter` 命令并加入 `PATH`；`funbuild` 本身只负责拼装 `flutter` 命令并不校验其可用性。
@@ -248,3 +248,16 @@ uvx ruff check . --fix
 - **farfarfun** — [farfarfun@qq.com](mailto:farfarfun@qq.com)
 
 若 funbuild 对你有帮助，欢迎点个 Star。
+
+---
+
+## 关于 farfarfun
+
+[farfarfun](https://github.com/farfarfun) 是一个专注于实用工具库的开源组织，
+涵盖云存储、数据处理、AI、多媒体与开发工具链等方向。
+
+- 🏠 组织主页：<https://github.com/farfarfun>
+- 📦 PyPI：<https://pypi.org/user/niuliangtao/>
+- 📧 联系：farfarfun@qq.com
+
+本项目基于 [MIT](LICENSE) 协议开源。

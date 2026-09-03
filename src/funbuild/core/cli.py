@@ -40,7 +40,7 @@ def funbuild():
     @cli.command()
     def push(
         message: typing.Annotated[
-            typing.Optional[str],
+            str | None,
             typer.Option("--message", "-m", help="commit 信息; 不传则由 aicommits 依据改动自动生成"),
         ] = None,
         batch_size: typing.Annotated[
@@ -61,7 +61,7 @@ def funbuild():
     @cli.command()
     def build(
         message: typing.Annotated[
-            typing.Optional[str],
+            str | None,
             typer.Argument(help="提交时的 commit 信息; 不传则由 aicommits 依据改动自动生成"),
         ] = None,
     ):
