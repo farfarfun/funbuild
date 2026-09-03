@@ -205,6 +205,53 @@ class BaseBuild:
             subprocess.run(["git", "commit", "-m", message or "add"], cwd=self.repo_path, check=True)
         subprocess.run(["git", "push"], cwd=self.repo_path, check=True)
 
+    def _submodule_paths(self) -> list[str]:
+        """当前仓库已初始化的直接 submodule 绝对路径列表。
+
+        未初始化的 submodule 目录里没有 .git, 没法 push, 过滤掉 (`git submodule
+        status` 中以 "-" 打头的行)。无 submodule 或非 git 仓库时返回空列表。
+        """
+        result = subprocess.run(
+            ["git", "submodule", "status"],
+            cwd=self.repo_path,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            return []
+        paths = []
+        for line in result.stdout.splitlines():
+            if not line or line[0] == "-":
+                continue
+            fields = line.strip().split()
+            if len(fields) >= 2:
+                paths.append(os.path.join(self.repo_path, fields[1]))
+        return paths
+
+    def push_all(self, message: str | None = None, batch_size: int = 20, *args, **kwargs) -> None:
+        """先在每个 submodule 里执行一次 `funbuild push`, 再 push 当前仓库。
+
+        submodule 通过子进程调用 `funbuild push`(而非直接复用 self.push()), 使其
+        行为与用户手动 cd 进去执行完全一致 —— 包括各 submodule 自身的构建类型探测。
+        不递归到 submodule 的 submodule, 与不带 "all" 时的 push 语义保持一致。
+
+        参数:
+            message: 透传给每一层 push 的提交信息, 为 None 时各层各自走 aicommits。
+            batch_size: 透传给每一层 push 的批次大小。
+            *args, **kwargs: 由 CLI 透传, 当前实现未使用, 仅为接口一致性保留。
+        返回:
+            无。
+        """
+        for submodule_path in self._submodule_paths():
+            logger.info(f"push submodule: {submodule_path}")
+            cmd = ["funbuild", "push"]
+            if message is not None:
+                cmd += ["--message", message]
+            cmd += ["--batch-size", str(batch_size)]
+            subprocess.run(cmd, cwd=submodule_path, check=True)
+        self.push(message=message, batch_size=batch_size)
+
     def install(self, *args, **kwargs) -> None:
         """本地构建并安装, 用于开发环境验证当前代码可安装, 不发布也不打标签。
 

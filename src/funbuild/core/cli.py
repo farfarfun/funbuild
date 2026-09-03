@@ -39,6 +39,10 @@ def funbuild():
 
     @cli.command()
     def push(
+        target: typing.Annotated[
+            str | None,
+            typer.Argument(help='传 "all" 时, 先依次在每个 submodule 里执行 push, 再 push 当前仓库'),
+        ] = None,
         message: typing.Annotated[
             str | None,
             typer.Option("--message", "-m", help="commit 信息; 不传则由 aicommits 依据改动自动生成"),
@@ -48,10 +52,13 @@ def funbuild():
         ] = 20,
     ):
         """推送代码"""
-        builder().push(
-            message,
-            batch_size=batch_size,
-        )
+        if target not in (None, "all"):
+            typer.secho(f'错误: push 的位置参数只接受 "all", 收到 {target!r}', fg=typer.colors.RED, err=True)
+            raise typer.Exit(code=1)
+        if target == "all":
+            builder().push_all(message, batch_size=batch_size)
+        else:
+            builder().push(message, batch_size=batch_size)
 
     @cli.command()
     def install():

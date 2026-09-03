@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "funbuild"
-version = "1.6.73"
+version = "1.6.75"
 description = "Python / 前端 / Flutter 仓库的一键发版工具：版本递增、构建、发布、打 tag，自动适配 uv / Poetry / npm / Flutter"
 readme = "README.md"
 requires-python = ">=3.10"

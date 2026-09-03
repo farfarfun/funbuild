@@ -140,6 +140,80 @@ class CommitMessageTest(unittest.TestCase):
             self.assertEqual(git(repo, "rev-parse", "HEAD"), git(repo, "rev-parse", f"origin/{branch}"))
 
 
+class PushAllTest(unittest.TestCase):
+    """funbuild push all: 先在每个 submodule 里执行 push, 再 push 当前仓库。"""
+
+    def test_push_all_pushes_submodule_then_main_repo(self):
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            sub_remote = temp_path / "sub_remote.git"
+            main_remote = temp_path / "main_remote.git"
+            git(temp, "init", "--bare", str(sub_remote))
+            git(temp, "init", "--bare", str(main_remote))
+
+            sub_src = temp_path / "sub_src"
+            sub_src.mkdir()
+            git(sub_src, "init")
+            git(sub_src, "config", "user.name", "Test")
+            git(sub_src, "config", "user.email", "test@example.com")
+            (sub_src / "s.txt").write_text("initial\n")
+            git(sub_src, "add", "s.txt")
+            git(sub_src, "commit", "-m", "sub initial")
+            git(sub_src, "remote", "add", "origin", str(sub_remote))
+            git(sub_src, "push", "-u", "origin", "HEAD")
+
+            main_src = temp_path / "main_src"
+            main_src.mkdir()
+            git(main_src, "init")
+            git(main_src, "config", "user.name", "Test")
+            git(main_src, "config", "user.email", "test@example.com")
+            git(main_src, "remote", "add", "origin", str(main_remote))
+            subprocess.run(
+                ["git", "-c", "protocol.file.allow=always", "submodule", "add", str(sub_remote), "sub"],
+                cwd=main_src,
+                check=True,
+            )
+            git(main_src, "commit", "-m", "add submodule")
+            git(main_src, "push", "-u", "origin", "HEAD")
+
+            (main_src / "sub" / "s.txt").write_text("initial\nchanged\n")
+            (main_src / "top.txt").write_text("top\n")
+
+            fake_bin = temp_path / "bin"
+            fake_bin.mkdir()
+            (fake_bin / "funbuild").write_text(
+                "#!/bin/sh\n"
+                f'exec env PYTHONPATH="{Path(__file__).resolve().parents[1] / "src"}" '
+                "python3 -c \"import sys; sys.argv=['funbuild']+sys.argv[1:]; "
+                'from funbuild.core.cli import funbuild; funbuild()" "$@"\n',
+                encoding="utf-8",
+            )
+            (fake_bin / "funbuild").chmod(0o755)
+
+            builder = BaseBuild.__new__(BaseBuild)
+            builder.repo_path = str(main_src)
+            builder.name = "main_src"
+
+            original_path = os.environ["PATH"]
+            os.environ["PATH"] = f"{fake_bin}{os.pathsep}{original_path}"
+            try:
+                builder.push_all(message="push all commit", batch_size=20)
+            finally:
+                os.environ["PATH"] = original_path
+
+            sub_branch = git(sub_src, "branch", "--show-current")
+            self.assertEqual(
+                git(main_src / "sub", "rev-parse", "HEAD"),
+                git(temp_path / "sub_remote.git", "rev-parse", sub_branch),
+            )
+            main_branch = git(main_src, "branch", "--show-current")
+            self.assertEqual(
+                git(main_src, "rev-parse", "HEAD"),
+                git(temp_path / "main_remote.git", "rev-parse", main_branch),
+            )
+            self.assertIn("top.txt", git(main_src, "show", "--stat", "HEAD"))
+
+
 class TagsTest(unittest.TestCase):
     """回归: `git tag --force` 移动了本地 tag, 但 `git push --tags` 拒绝更新远端
     已存在的 tag, 于是重发同一版本会在发布成功之后卡在打 tag 这步失败。"""
