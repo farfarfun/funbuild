@@ -165,6 +165,38 @@ class CommandTest(unittest.TestCase):
         builder = self.builder_for(pubspec)
         self.assertEqual(builder._cmd_delete(), ["rm -rf build", "rm -rf .dart_tool"])
 
+    def test_fvm_sdk_prefixes_build_and_delete_with_export_path(self):
+        """存在 fvm 生成的 .fvm/flutter_sdk 时, build/delete 命令链最前面应插入
+        一条 export PATH, 让链上后续 flutter/dart 命令解析到 fvm 锁定的版本。"""
+        with project({"pubspec.yaml": PUBSPEC}) as root:
+            fvm_bin = root / ".fvm" / "flutter_sdk" / "bin"
+            fvm_bin.mkdir(parents=True)
+            builder = make_builder()
+            builder.check_type()
+            export_cmd = f'export PATH={fvm_bin}:"$PATH"'
+            self.assertEqual(
+                builder._cmd_build(),
+                [export_cmd, "flutter pub get", "flutter build apk --release", "flutter build web --release"],
+            )
+            self.assertEqual(builder._cmd_delete(), [export_cmd, "flutter clean"])
+
+    def test_fvm_sdk_prefix_also_applies_to_custom_commands(self):
+        with project({"pubspec.yaml": PUBSPEC}) as root:
+            fvm_bin = root / ".fvm" / "flutter_sdk" / "bin"
+            fvm_bin.mkdir(parents=True)
+            pubspec_extra = "\nfunbuild:\n  cleanDirs:\n    - build\n"
+            (root / "pubspec.yaml").write_text(PUBSPEC + pubspec_extra, encoding="utf-8")
+            builder = make_builder()
+            builder.check_type()
+            export_cmd = f'export PATH={fvm_bin}:"$PATH"'
+            self.assertEqual(builder._cmd_delete(), [export_cmd, "rm -rf build"])
+
+    def test_without_fvm_sdk_no_prefix_is_added(self):
+        """没有 .fvm/flutter_sdk 时命令链不受影响, 与改动前完全一致。"""
+        builder = self.builder_for(PUBSPEC)
+        self.assertNotIn(True, [cmd.startswith("export PATH=") for cmd in builder._cmd_build()])
+        self.assertNotIn(True, [cmd.startswith("export PATH=") for cmd in builder._cmd_delete()])
+
 
 class WriteVersionTest(unittest.TestCase):
     def test_build_number_is_incremented_and_main_version_synced(self):

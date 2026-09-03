@@ -90,11 +90,27 @@ class FlutterBuild(BaseBuild):
             return cmds or None
         return None
 
+    def _fvm_path_prefix(self) -> list[str]:
+        """项目若用 fvm 锁定了 Flutter 版本 (存在 `.fvm/flutter_sdk` 符号链接,
+        由 `fvm use <version>` 生成), 把该 SDK 的 bin 目录临时加到 PATH 最前面,
+        让后续 flutter/dart 命令解析到 fvm 锁定的版本, 不依赖调用者 shell是否
+        手动配置过全局 PATH。未使用 fvm 的项目原样跳过, 行为不变。
+
+        命令链上所有命令由 run_shell_list 拼成一条 ` && ` 串在同一个 shell
+        进程里执行, 因此这里插入的 export 对后续命令天然生效, 不需要 source。
+        """
+        fvm_bin = os.path.join(self.repo_path, ".fvm", "flutter_sdk", "bin")
+        if os.path.isdir(fvm_bin):
+            return [f'export PATH={shlex.quote(fvm_bin)}:"$PATH"']
+        return []
+
     def _cmd_build(self) -> list[str]:
+        prefix = self._fvm_path_prefix()
         custom = self._as_command_list(self._funbuild_cfg.get("build"))
         if custom is not None:
-            return ["flutter pub get", *custom]
+            return [*prefix, "flutter pub get", *custom]
         return [
+            *prefix,
             "flutter pub get",
             "flutter build apk --release",
             "flutter build web --release",
@@ -132,7 +148,8 @@ class FlutterBuild(BaseBuild):
         ]
 
     def _cmd_delete(self) -> list[str]:
+        prefix = self._fvm_path_prefix()
         custom = self._funbuild_cfg.get("cleanDirs")
         if isinstance(custom, list) and custom:
-            return [f"rm -rf {d}" for d in custom if isinstance(d, str) and d.strip()]
-        return ["flutter clean"]
+            return [*prefix, *(f"rm -rf {d}" for d in custom if isinstance(d, str) and d.strip())]
+        return [*prefix, "flutter clean"]
