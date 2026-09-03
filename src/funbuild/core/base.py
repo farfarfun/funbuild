@@ -62,7 +62,14 @@ def is_org_repo(repo_path: str, org: str = "farfarfun") -> bool:
 class BaseBuild:
     """构建工具的基类"""
 
-    def __init__(self, name=None):
+    def __init__(self, name: str | None = None) -> None:
+        """初始化构建器。
+
+        参数:
+            name: 包名。为 None 时取当前 git 仓库根目录名作为默认包名。
+        返回:
+            无。
+        """
         self.repo_path = git_repo_root(os.getcwd())
         self.name = name or self.repo_path.split("/")[-1]
         self.version = None
@@ -118,13 +125,25 @@ class BaseBuild:
             "rm -rf uv.lock",
         ]
 
-    def upgrade(self, *args, **kwargs):
-        """升级版本"""
+    def upgrade(self, *args, **kwargs) -> None:
+        """升级版本号并写回配置文件。
+
+        参数:
+            *args, **kwargs: 由 CLI 透传, 当前实现未使用, 仅为接口一致性保留。
+        返回:
+            无。
+        """
         self.version = self.__version_upgrade()
         self._write_version()
 
-    def pull(self, *args, **kwargs):
-        """拉取代码"""
+    def pull(self, *args, **kwargs) -> None:
+        """从远端拉取最新代码 (`git pull`)。
+
+        参数:
+            *args, **kwargs: 由 CLI 透传, 当前实现未使用, 仅为接口一致性保留。
+        返回:
+            无。
+        """
         logger.info(f"{self.name} pull")
         run_checked(["git pull"])
 
@@ -152,11 +171,20 @@ class BaseBuild:
             index += 1
         return sorted(changes)
 
-    def push(self, message=None, batch_size=20, *args, **kwargs):
-        """推送代码。
+    def push(self, message: str | None = None, batch_size: int = 20, *args, **kwargs) -> None:
+        """把改动分批提交并推送到远端。
 
         message 为 None 时交给 aicommits 依据改动自动生成信息; 显式传入则原样使用
         —— aicommits 会无视外部信息自己生成一条, 因此指定了信息就不能再走它。
+
+        参数:
+            message: 提交信息。为 None 时优先尝试 aicommits 自动生成, 失败则用 "add"。
+            batch_size: 每次提交最多包含的文件数, 用于避免单次提交内容过大。
+            *args, **kwargs: 由 CLI 透传, 当前实现未使用, 仅为接口一致性保留。
+        返回:
+            无。
+        异常:
+            ValueError: batch_size 小于 1 时抛出。
         """
         logger.info(f"{self.name} push")
         if batch_size < 1:
@@ -177,13 +205,28 @@ class BaseBuild:
             subprocess.run(["git", "commit", "-m", message or "add"], cwd=self.repo_path, check=True)
         subprocess.run(["git", "push"], cwd=self.repo_path, check=True)
 
-    def install(self, *args, **kwargs):
-        """安装包"""
+    def install(self, *args, **kwargs) -> None:
+        """本地构建并安装, 用于开发环境验证当前代码可安装, 不发布也不打标签。
+
+        参数:
+            *args, **kwargs: 由 CLI 透传, 当前实现未使用, 仅为接口一致性保留。
+        返回:
+            无。
+        """
         logger.info(f"{self.name} install")
         run_checked(self._cmd_build() + self._cmd_install() + self._cmd_delete())
 
-    def build(self, message=None, *args, **kwargs):
-        """构建发布流程"""
+    def build(self, message: str | None = None, *args, **kwargs) -> None:
+        """完整发布流程: pull -> upgrade -> 清理 -> 构建 -> 安装校验 -> 发布 -> 清理 -> push -> tag。
+
+        任一步失败会立即中止 (由 run_checked 抛出异常), 不会继续 push 或打标签。
+
+        参数:
+            message: 透传给 `push` 的提交信息, 为 None 时走 aicommits 自动生成。
+            *args, **kwargs: 由 CLI 透传, 当前实现未使用, 仅为接口一致性保留。
+        返回:
+            无。
+        """
         logger.info(f"{self.name} build")
         self.pull()
         self.upgrade()
@@ -193,8 +236,17 @@ class BaseBuild:
         self.push(message=message)
         self.tags()
 
-    def clean_history(self, *args, **kwargs):
-        """清理git历史记录"""
+    def clean_history(self, *args, **kwargs) -> None:
+        """抹掉全部 git 历史与标签并强推当前分支, 不可恢复且无二次确认。
+
+        高风险操作: 会删除本地及远端所有 tag, 并用一个 orphan 分支替换当前
+        分支的全部历史, 最后强制推送覆盖远端。仅用于确需清空历史的场景。
+
+        参数:
+            *args, **kwargs: 由 CLI 透传, 当前实现未使用, 仅为接口一致性保留。
+        返回:
+            无。
+        """
         logger.info(f"{self.name} clean history")
         current_branch = run_shell("git rev-parse --abbrev-ref HEAD", printf=False).strip() or "master"
         run_checked(
@@ -215,8 +267,14 @@ class BaseBuild:
             ]
         )
 
-    def clean(self, *args, **kwargs):
-        """清理git缓存"""
+    def clean(self, *args, **kwargs) -> None:
+        """清理 git 索引缓存并重新提交, 使新增的 .gitignore 规则对已跟踪文件生效。
+
+        参数:
+            *args, **kwargs: 由 CLI 透传, 当前实现未使用, 仅为接口一致性保留。
+        返回:
+            无。
+        """
         logger.info(f"{self.name} clean")
         run_checked(
             [
@@ -227,8 +285,16 @@ class BaseBuild:
             ]
         )
 
-    def tags(self, *args, **kwargs):
-        """创建版本标签"""
+    def tags(self, *args, **kwargs) -> None:
+        """为当前版本号打 `v<version>` 标签并强制推送到远端。
+
+        `self.version` 未设置(如未走过 `upgrade`)时跳过并记录警告, 不报错。
+
+        参数:
+            *args, **kwargs: 由 CLI 透传, 当前实现未使用, 仅为接口一致性保留。
+        返回:
+            无。
+        """
         if not self.version:
             logger.warning("skip tags: version is not set")
             return

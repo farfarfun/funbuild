@@ -158,7 +158,7 @@ funbuild clean-history  # 抹掉全部历史与标签并强推，不可恢复且
 
 ## 发布凭据
 
-`uv publish` 的凭据从 `~/.pypirc` 读取。服务器名的选取顺序为：`pyproject.toml` 中 `[[tool.uv.index]]` 的 `name` > `~/.pypirc` 里 `[distutils].index-servers` 的首项 > 默认 `pypi`。
+`uv publish` 的凭据优先读取 `UV_PUBLISH_TOKEN` / `UV_PUBLISH_USERNAME` / `UV_PUBLISH_PASSWORD` / `UV_PUBLISH_URL` 环境变量；某个变量未设置时，才用 `~/.pypirc` 里对应的值补齐（已设置的环境变量不会被 `~/.pypirc` 覆盖）。服务器名的选取顺序为：`pyproject.toml` 中 `[[tool.uv.index]]` 的 `name` > `~/.pypirc` 里 `[distutils].index-servers` 的首项 > 默认 `pypi`。
 
 ```ini
 [distutils]

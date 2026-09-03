@@ -180,19 +180,24 @@ class UVBuild(BaseBuild):
         凭据不能拼进命令行: funshell 用 shell=True 执行, 完整命令行会出现在
         进程表中 (ps aux) 对本机所有用户可见; 且明文拼接遇到含引号/空格的密码
         会破坏引号甚至造成命令注入。uv 原生支持从环境变量读取。
+
+        按 SPEC.md §9.3 的优先级(环境变量 > 配置文件), 调用方(CI 等)若已经
+        显式导出了 UV_PUBLISH_* 环境变量, 这里不覆盖, 只用 ~/.pypirc 补齐
+        环境变量里缺失的部分, 使 ~/.pypirc 退化为纯本地开发的 fallback。
         """
         user = settings.get("username")
         if not user:
             return
         password = settings.get("password")
         if "__token__" in user:
-            if password:
+            if password and "UV_PUBLISH_TOKEN" not in os.environ:
                 os.environ["UV_PUBLISH_TOKEN"] = password
         else:
-            os.environ["UV_PUBLISH_USERNAME"] = user
-            if password:
+            if "UV_PUBLISH_USERNAME" not in os.environ:
+                os.environ["UV_PUBLISH_USERNAME"] = user
+            if password and "UV_PUBLISH_PASSWORD" not in os.environ:
                 os.environ["UV_PUBLISH_PASSWORD"] = password
-        if url := settings.get("repository"):
+        if (url := settings.get("repository")) and "UV_PUBLISH_URL" not in os.environ:
             os.environ["UV_PUBLISH_URL"] = url
 
     def _cmd_publish(self) -> list[str]:
