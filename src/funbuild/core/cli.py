@@ -28,9 +28,14 @@ def funbuild():
         return cached[0]
 
     @cli.command()
-    def upgrade():
+    def upgrade(
+        version: typing.Annotated[
+            str | None,
+            typer.Option("--version", help="指定目标版本号; 不传则沿用旧逻辑自动递增当前版本号"),
+        ] = None,
+    ):
         """升级版本"""
-        builder().upgrade()
+        builder().upgrade(version=version)
 
     @cli.command()
     def pull():
@@ -71,9 +76,13 @@ def funbuild():
             str | None,
             typer.Argument(help="提交时的 commit 信息; 不传则由 aicommits 依据改动自动生成"),
         ] = None,
+        version: typing.Annotated[
+            str | None,
+            typer.Option("--version", help="指定发布版本号; 不传则沿用旧逻辑自动递增当前版本号"),
+        ] = None,
     ):
         """构建发布"""
-        builder().build(message=message)
+        builder().build(message=message, version=version)
 
     # release 是 build 的别名: 复用同一函数对象而非复制签名, 避免两者日后漂移
     cli.command("release", help="构建发布 (build 的别名)")(build)

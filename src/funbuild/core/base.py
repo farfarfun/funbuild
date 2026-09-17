@@ -125,15 +125,17 @@ class BaseBuild:
             "rm -rf uv.lock",
         ]
 
-    def upgrade(self, *args, **kwargs) -> None:
+    def upgrade(self, version: str | None = None, *args, **kwargs) -> None:
         """升级版本号并写回配置文件。
 
         参数:
+            version: 显式指定的目标版本号。传入时直接采用(以此为准写入文件),
+                跳过自动递增; 不传时沿用旧逻辑, 在当前版本号基础上自动递增。
             *args, **kwargs: 由 CLI 透传, 当前实现未使用, 仅为接口一致性保留。
         返回:
             无。
         """
-        self.version = self.__version_upgrade()
+        self.version = version.lstrip("vV") if version else self.__version_upgrade()
         self._write_version()
 
     def pull(self, *args, **kwargs) -> None:
@@ -263,20 +265,21 @@ class BaseBuild:
         logger.info(f"{self.name} install")
         run_checked(self._cmd_build() + self._cmd_install() + self._cmd_delete())
 
-    def build(self, message: str | None = None, *args, **kwargs) -> None:
+    def build(self, message: str | None = None, version: str | None = None, *args, **kwargs) -> None:
         """完整发布流程: pull -> upgrade -> 清理 -> 构建 -> 安装校验 -> 发布 -> 清理 -> push -> tag。
 
         任一步失败会立即中止 (由 run_checked 抛出异常), 不会继续 push 或打标签。
 
         参数:
             message: 透传给 `push` 的提交信息, 为 None 时走 aicommits 自动生成。
+            version: 显式指定的发布版本号, 透传给 `upgrade`; 为 None 时沿用旧逻辑自动递增。
             *args, **kwargs: 由 CLI 透传, 当前实现未使用, 仅为接口一致性保留。
         返回:
             无。
         """
         logger.info(f"{self.name} build")
         self.pull()
-        self.upgrade()
+        self.upgrade(version=version)
         run_checked(
             self._cmd_delete() + self._cmd_build() + self._cmd_install() + self._cmd_publish() + self._cmd_delete()
         )

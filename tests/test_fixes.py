@@ -117,6 +117,45 @@ class VersionUpgradeTest(unittest.TestCase):
         self.assertEqual(self.upgrade(None), "0.0.2")
 
 
+class UpgradeExplicitVersionTest(unittest.TestCase):
+    """upgrade 传入显式版本号时应直接采用, 不再自动递增。"""
+
+    def test_explicit_version_is_used_as_is(self):
+        builder = make_builder(version="1.6.54")
+        with patch.object(BaseBuild, "_write_version") as write_version:
+            builder.upgrade(version="9.9.9")
+        self.assertEqual(builder.version, "9.9.9")
+        write_version.assert_called_once()
+
+    def test_explicit_version_v_prefix_is_stripped(self):
+        """否则 tags() 拼出来的 tag 会变成 vv9.9.9。"""
+        builder = make_builder(version="1.6.54")
+        with patch.object(BaseBuild, "_write_version"):
+            builder.upgrade(version="v9.9.9")
+        self.assertEqual(builder.version, "9.9.9")
+
+    def test_no_version_keeps_auto_increment(self):
+        builder = make_builder(version="1.6.54")
+        with patch.object(BaseBuild, "_write_version"):
+            builder.upgrade()
+        self.assertEqual(builder.version, "1.6.55")
+
+    def test_build_forwards_version_to_upgrade(self):
+        builder = make_builder(version="1.0.0")
+        with (
+            patch.object(BaseBuild, "pull"),
+            patch.object(BaseBuild, "_cmd_build", return_value=[]),
+            patch.object(BaseBuild, "_cmd_delete", return_value=[]),
+            patch.object(BaseBuild, "_cmd_install", return_value=[]),
+            patch.object(BaseBuild, "_cmd_publish", return_value=[]),
+            patch.object(BaseBuild, "_write_version"),
+            patch.object(BaseBuild, "push"),
+            patch.object(BaseBuild, "tags"),
+        ):
+            builder.build(version="3.1.4")
+        self.assertEqual(builder.version, "3.1.4")
+
+
 class PoetryCheckTypeTest(unittest.TestCase):
     """check_type 必须返回 bool, 不能抛 KeyError。"""
 
@@ -369,6 +408,26 @@ class RepairGeneratedMessageTest(unittest.TestCase):
         self.assertEqual(self.repair("fix: 一条正常的信息\n"), [])
 
 
+class UpgradeCommandVersionOptionTest(unittest.TestCase):
+    """upgrade 命令的 --version 需原样透传给 builder().upgrade。"""
+
+    def invoke(self, argv):
+        builder = MagicMock()
+        with patch("funbuild.core.cli.get_build", return_value=builder):
+            with patch.object(sys, "argv", ["funbuild", *argv]):
+                with contextlib.suppress(SystemExit):
+                    cli_entry()
+        return builder
+
+    def test_no_version_defaults_to_none(self):
+        builder = self.invoke(["upgrade"])
+        builder.upgrade.assert_called_once_with(version=None)
+
+    def test_version_option_is_forwarded(self):
+        builder = self.invoke(["upgrade", "--version", "2.0.0"])
+        builder.upgrade.assert_called_once_with(version="2.0.0")
+
+
 class ReleaseAliasTest(unittest.TestCase):
     """release 必须与 build 走同一条流水线。"""
 
@@ -382,11 +441,15 @@ class ReleaseAliasTest(unittest.TestCase):
 
     def test_release_dispatches_to_build(self):
         builder = self.invoke(["release"])
-        builder.build.assert_called_once_with(message=None)
+        builder.build.assert_called_once_with(message=None, version=None)
 
     def test_release_accepts_positional_message(self):
         builder = self.invoke(["release", "ship it"])
-        builder.build.assert_called_once_with(message="ship it")
+        builder.build.assert_called_once_with(message="ship it", version=None)
+
+    def test_build_accepts_version_option(self):
+        builder = self.invoke(["build", "ship it", "--version", "2.0.0"])
+        builder.build.assert_called_once_with(message="ship it", version="2.0.0")
 
     def test_release_matches_build(self):
         self.assertEqual(
