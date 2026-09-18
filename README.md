@@ -21,14 +21,31 @@
 
 | 优先级 | 构建类型 | 判定条件 | 适用项目 |
 | --- | --- | --- | --- |
-| 1 | `UvNpmHybridBuild` | 同时满足 `UVBuild` 与 `NpmFrontendBuild` 的判定条件 | 同一仓库里既是 UV 管理的 Python 包、又带前端 `package.json` 的混合项目（一条命令串联两侧构建/安装/发布） |
-| 2 | `UVBuild` | 根目录存在 `pyproject.toml` 且含 `[project]` 段 | 使用 `uv` / PEP 621 标准 `pyproject.toml` 的现代 Python 包（含 `extbuild/`、`exts/` 子包） |
-| 3 | `PoetryBuild` | `pyproject.toml` 存在且 `[tool.poetry].version` 有效 | 使用 Poetry 管理版本与依赖的 Python 项目 |
-| 4 | `PypiBuild` | 根目录存在 `script/__version__.md` | 早期遗留的 PyPI 发布脚本项目 |
-| 5 | `FlutterBuild` | `pubspec.yaml` 存在且 `dependencies.flutter.sdk == flutter` | Flutter 应用/插件项目 |
-| 6 | `NpmFrontendBuild` | 存在 `package.json`（含 `extbuild/` 等子目录的多包场景） | npm / pnpm / yarn 管理的纯前端项目 |
-| 7 | `VersionFileBuild` | 根目录存在纯文本 `VERSION` 文件 | 没有 `pyproject.toml` / `package.json`、无需真正构建的仓库（如 Shell 脚本仓库），仅借用 `upgrade` / `push` / `tag` 的版本与 Git 流程 |
-| 8 | `EmptyBuild` | 兜底，永远匹配 | 未识别到任何版本清单的仓库；`upgrade`、`build`、`tag` 均为空操作，仅保留提示日志 |
+| 1 | `SubmoduleWorkspaceBuild` | 根目录同时存在 `apps/` 目录与 `scripts/funbuild.toml` | `<product>-dev` 编排仓库：`apps/` 下每个 app 是独立仓库的 git submodule，仓库自身没有可构建产物，见下方专节 |
+| 2 | `UvNpmHybridBuild` | 同时满足 `UVBuild` 与 `NpmFrontendBuild` 的判定条件 | 同一仓库里既是 UV 管理的 Python 包、又带前端 `package.json` 的混合项目（一条命令串联两侧构建/安装/发布） |
+| 3 | `UVBuild` | 根目录存在 `pyproject.toml` 且含 `[project]` 段 | 使用 `uv` / PEP 621 标准 `pyproject.toml` 的现代 Python 包（含 `extbuild/`、`exts/` 子包） |
+| 4 | `PoetryBuild` | `pyproject.toml` 存在且 `[tool.poetry].version` 有效 | 使用 Poetry 管理版本与依赖的 Python 项目 |
+| 5 | `PypiBuild` | 根目录存在 `script/__version__.md` | 早期遗留的 PyPI 发布脚本项目 |
+| 6 | `FlutterBuild` | `pubspec.yaml` 存在且 `dependencies.flutter.sdk == flutter` | Flutter 应用/插件项目 |
+| 7 | `NpmFrontendBuild` | 存在 `package.json`（含 `extbuild/` 等子目录的多包场景） | npm / pnpm / yarn 管理的纯前端项目 |
+| 8 | `VersionFileBuild` | 根目录存在纯文本 `VERSION` 文件 | 没有 `pyproject.toml` / `package.json`、无需真正构建的仓库（如 Shell 脚本仓库），仅借用 `upgrade` / `push` / `tag` 的版本与 Git 流程 |
+| 9 | `EmptyBuild` | 兜底，永远匹配 | 未识别到任何版本清单的仓库；`upgrade`、`build`、`tag` 均为空操作，仅保留提示日志 |
+
+### `<product>-dev` 提交工作区 (`SubmoduleWorkspaceBuild`)
+
+面向 `apps/<name>` 下每个 app 都是独立仓库 git submodule 的编排仓库（配套 [`submodule-workspace-governance`](https://github.com/farfarfun-skill/service-governance) 技能约定的目录结构）。这个仓库本身没有可构建产物，`scripts/funbuild.toml` 里的 `version` 是分发给所有 app 的共享版本号，而不是每个 app 各自维护。
+
+```toml
+# scripts/funbuild.toml
+version = "1.0.0"
+packages = ["funtrack"]   # 可选：这些依赖在每个 app 构建前会被升级到最新版
+```
+
+`funbuild build` 在这类仓库上依次执行：
+
+1. `pull` 当前仓库，递增共享 `version`。
+2. 遍历 `apps/` 下每个已初始化的 submodule：跳过结构上是嵌套 `<something>-dev` 工作区的 app（自己也有 `apps/` + `scripts/setup.sh`，由它自己的发布节奏管理，不会被递归进入）；其余 app 依次切到跟踪分支、`git pull`、把 `packages` 里配置的依赖升级到最新版（按 app 目录下存在的清单文件分派：`pyproject.toml` → `uv add <pkg>@latest`；`package.json` → 按 `pnpm-lock.yaml`/`yarn.lock`/默认 npm 自动选择 `pnpm add` / `yarn add` / `npm install --save`；`pubspec.yaml` → `dart pub add <pkg>`），再转发 `funbuild build --version <共享版本号>`。
+3. 统一 `push`、打 `v{version}` 标签一次，使所有 submodule 指针更新落成一个提交。
 
 ### Flutter 项目 (`FlutterBuild`)
 

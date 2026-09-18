@@ -10,12 +10,14 @@ from .hybrid import UvNpmHybridBuild
 from .npm_frontend import NpmFrontendBuild
 from .poetry_build import PoetryBuild
 from .pypi_build import PypiBuild
+from .submodule_workspace_build import SubmoduleWorkspaceBuild
 from .util import logger
 from .uv_build import UVBuild
 from .version_file_build import VersionFileBuild
 
 
 def get_build() -> Union[
+    SubmoduleWorkspaceBuild,
     UvNpmHybridBuild,
     UVBuild,
     PoetryBuild,
@@ -32,11 +34,15 @@ def get_build() -> Union[
     # 发布成功了, 实际什么都没做。
     os.chdir(git_repo_root(os.getcwd()))
 
-    # 顺序即优先级: 越靠前越具体。FlutterBuild 排在 NpmFrontendBuild 之前 ——
-    # Flutter Web 项目常常也带一个仅供前端工具链使用的 package.json, 若 npm
-    # 先匹配会把它错认成纯前端项目。VersionFileBuild 作为最后的真实回退,
-    # 只在所有清单类构建都不匹配时才接管; EmptyBuild 永远匹配, 必须垫底。
+    # 顺序即优先级: 越靠前越具体。SubmoduleWorkspaceBuild 排最前 —— 它要求同时
+    # 存在 apps/ 目录和 scripts/funbuild.toml, 是所有类型里最苛刻的判定条件,
+    # 不会误伤任何既有项目, 但一旦命中就该优先接管 (repo 自身没有可发布产物)。
+    # FlutterBuild 排在 NpmFrontendBuild 之前 —— Flutter Web 项目常常也带一个
+    # 仅供前端工具链使用的 package.json, 若 npm 先匹配会把它错认成纯前端项目。
+    # VersionFileBuild 作为最后的真实回退, 只在所有清单类构建都不匹配时才接管;
+    # EmptyBuild 永远匹配, 必须垫底。
     builders = [
+        SubmoduleWorkspaceBuild,
         UvNpmHybridBuild,
         UVBuild,
         PoetryBuild,
