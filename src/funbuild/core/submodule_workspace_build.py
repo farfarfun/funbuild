@@ -169,15 +169,20 @@ class SubmoduleWorkspaceBuild(BaseBuild):
         return "npm"
 
     def _upgrade_pinned_uv(self, path: str, pyproject_path: str, pinned_normalized: dict[str, str]) -> None:
-        """委托给 `uv add <pkg>@latest`: 它已经会按该 app 自己 pyproject.toml 里
-        配置的 index 解析最新版本并重写依赖声明, 不需要我们自己再查询版本号或
-        手改 TOML。
+        """`uv add <pkg>@latest` 不是 uv 的合法语法: `@` 后面的 token 会被当成
+        PEP 508 直接引用 (本地路径/URL), 不是 npm 风格的 "latest" 关键字, 实测
+        会报 `Distribution not found at: file://<cwd>/latest`。正确做法是
+        `uv remove` 再 `uv add`: 不带版本号的 `uv add` 会按该 app 自己
+        pyproject.toml 里配置的 index 解析出当前最新版本并重写依赖声明,
+        `remove` 是让它在已存在同名依赖时也一定按新解析结果重写 (纯 `uv add`
+        对已存在的依赖是空操作, 不会更新版本)。
         """
         matched = pinned_normalized.keys() & self._dependency_names_uv(pyproject_path)
         for normalized in sorted(matched):
             pkg = pinned_normalized[normalized]
             logger.info(f"upgrade pinned dependency to latest (uv): {pkg} ({path})")
-            subprocess.run(["uv", "add", f"{pkg}@latest"], cwd=path, check=True)
+            subprocess.run(["uv", "remove", pkg], cwd=path, check=True)
+            subprocess.run(["uv", "add", pkg], cwd=path, check=True)
 
     def _upgrade_pinned_npm(self, path: str, package_json_path: str, pinned_normalized: dict[str, str]) -> None:
         matched = pinned_normalized.keys() & self._dependency_names_npm(package_json_path)
@@ -196,7 +201,7 @@ class SubmoduleWorkspaceBuild(BaseBuild):
 
     def _upgrade_pinned_flutter(self, path: str, pubspec_path: str, pinned_normalized: dict[str, str]) -> None:
         """委托给 `dart pub add <pkg>`: 包已在依赖里时, pub 会把约束重写为解析到
-        的最新可用版本, 效果上等同于 uv 那边的 `<pkg>@latest`。
+        的最新可用版本, 效果上等同于 uv 那边的 `remove` + `add`。
         """
         matched = pinned_normalized.keys() & self._dependency_names_flutter(pubspec_path)
         for normalized in sorted(matched):

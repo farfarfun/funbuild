@@ -3,7 +3,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 from funbuild.core.submodule_workspace_build import SubmoduleWorkspaceBuild
 
@@ -125,7 +125,13 @@ class UpgradePinnedPackagesTest(unittest.TestCase):
             builder = new_builder(repo)
             with patch("funbuild.core.submodule_workspace_build.subprocess.run") as mock_run:
                 builder._upgrade_pinned_packages(str(app))
-            mock_run.assert_called_once_with(["uv", "add", "funtrack@latest"], cwd=str(app), check=True)
+            mock_run.assert_has_calls(
+                [
+                    call(["uv", "remove", "funtrack"], cwd=str(app), check=True),
+                    call(["uv", "add", "funtrack"], cwd=str(app), check=True),
+                ]
+            )
+            assert mock_run.call_count == 2
 
     def test_upgrades_matching_npm_dependency(self):
         with tempfile.TemporaryDirectory() as temp:
