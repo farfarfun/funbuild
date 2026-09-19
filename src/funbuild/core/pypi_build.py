@@ -13,7 +13,7 @@ class PypiBuild(BaseBuild):
         super().__init__(*args, **kwargs)
         self.version_path = "./script/__version__.md"
 
-    def check_type(self):
+    def check_type(self) -> bool:
         """检查是否为PyPI项目"""
         if not os.path.exists(self.version_path):
             return False

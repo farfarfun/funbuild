@@ -9,7 +9,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import tomlkit
 
@@ -328,22 +328,21 @@ class AicommitsProbeTest(unittest.TestCase):
         self.addCleanup(util._aicommits_available.cache_clear)
 
     def test_missing_cli_probed_once(self):
-        staged = type("R", (), {"returncode": 1})()
         with patch("funbuild.core.util.shutil.which", return_value=None) as which:
-            with patch("funbuild.core.util.subprocess.run", return_value=staged) as run:
-                for _ in range(5):
-                    self.assertFalse(util.aicommits_commit())
+            with patch("funbuild.core.util.run_shell", return_value="1"):
+                with patch("funbuild.core.util.run_checked") as run:
+                    for _ in range(5):
+                        self.assertFalse(util.aicommits_commit())
 
         self.assertEqual(which.call_count, 1, "aicommits 可用性只应探测一次")
-        aicommits_calls = [c for c in run.call_args_list if c.args[0][0] == "aicommits"]
-        self.assertEqual(aicommits_calls, [], "CLI 缺失时不应尝试调用")
+        run.assert_not_called()
 
     def test_available_cli_is_invoked(self):
-        staged = type("R", (), {"returncode": 1})()
         with patch("funbuild.core.util.shutil.which", return_value="/usr/bin/aicommits"):
-            with patch("funbuild.core.util.subprocess.run", return_value=staged) as run:
-                util.aicommits_commit()
-        self.assertTrue([c for c in run.call_args_list if c.args[0][0] == "aicommits"])
+            with patch("funbuild.core.util.run_shell", side_effect=["1", "0", "feat: generated"]):
+                with patch("funbuild.core.util.run_checked") as run:
+                    util.aicommits_commit()
+        run.assert_called_once_with(["aicommits --yes"], cwd=None)
 
 
 class SanitizeCommitMessageTest(unittest.TestCase):
@@ -384,25 +383,18 @@ class RepairGeneratedMessageTest(unittest.TestCase):
     """信息被污染时必须就地 amend, 不能让它留在历史里。"""
 
     def repair(self, generated, fallback="add"):
-        calls = []
-
-        def fake_run(cmd, **kwargs):
-            calls.append(cmd)
-            if cmd[:2] == ["git", "log"]:
-                return type("R", (), {"stdout": generated, "returncode": 0})()
-            return type("R", (), {"stdout": "", "returncode": 0})()
-
-        with patch("funbuild.core.util.subprocess.run", side_effect=fake_run):
-            util._repair_generated_message("/repo", fallback)
-        return [c for c in calls if "--amend" in c]
+        with patch("funbuild.core.util.run_shell", return_value=generated):
+            with patch("funbuild.core.util.run_checked") as run:
+                util._repair_generated_message("/repo", fallback)
+        return run.call_args_list
 
     def test_think_only_message_is_amended_to_fallback(self):
         amends = self.repair("<think>\n", fallback="add")
-        self.assertEqual(amends, [["git", "commit", "--amend", "-m", "add"]])
+        self.assertEqual(amends, [call(["git commit --amend -m add"], cwd="/repo")])
 
     def test_recoverable_message_is_amended_to_conclusion(self):
         amends = self.repair("<think>想了想</think>\nfix: 真正的信息")
-        self.assertEqual(amends, [["git", "commit", "--amend", "-m", "fix: 真正的信息"]])
+        self.assertEqual(amends, [call(["git commit --amend -m 'fix: 真正的信息'"], cwd="/repo")])
 
     def test_clean_message_is_left_alone(self):
         self.assertEqual(self.repair("fix: 一条正常的信息\n"), [])
@@ -676,7 +668,7 @@ line-length = 120
     def test_only_the_version_line_changes(self):
         before = self.SOURCE.splitlines()
         after = self.upgrade_in_place().splitlines()
-        differing = [(a, b) for a, b in zip(before, after) if a != b]
+        differing = [(a, b) for a, b in zip(before, after, strict=True) if a != b]
         self.assertEqual(len(before), len(after), "行数不应变化")
         self.assertEqual(differing, [('version = "1.0.0"', 'version = "1.0.1"')])
 

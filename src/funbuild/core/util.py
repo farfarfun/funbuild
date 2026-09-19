@@ -1,14 +1,14 @@
 #!/usr/bin/python3
 
 import re
+import shlex
 import shutil
-import subprocess
 from functools import lru_cache
 from typing import Any
 
 import tomlkit
-from funshell import run_shell_list
 from farlog import getLogger
+from funshell import run_shell, run_shell_list
 
 logger = getLogger("funbuild")
 
@@ -79,7 +79,10 @@ def _aicommits_available() -> bool:
 
 def has_staged_changes(cwd=None) -> bool:
     """暂存区是否有待提交内容。"""
-    return subprocess.run(["git", "diff", "--staged", "--quiet"], cwd=cwd, check=False).returncode != 0
+    status = run_shell("git diff --staged --quiet", cwd=cwd).strip()
+    if status not in {"0", "1"}:
+        raise ShellCommandError(f"git diff --staged --quiet failed (exit={status!r})")
+    return status == "1"
 
 
 # 推理模型 (deepseek-reasoner、QwQ、R1 等) 会把思维链包在 <think> 里输出, aicommits
@@ -110,9 +113,7 @@ def sanitize_commit_message(message: str) -> str:
 
 
 def _last_commit_message(cwd=None) -> str:
-    return subprocess.run(
-        ["git", "log", "-1", "--format=%B"], cwd=cwd, check=True, stdout=subprocess.PIPE, text=True
-    ).stdout
+    return run_shell("git log -1 --format=%B", printf=False, cwd=cwd)
 
 
 def _repair_generated_message(cwd, fallback: str) -> None:
@@ -123,7 +124,7 @@ def _repair_generated_message(cwd, fallback: str) -> None:
         return
     replacement = cleaned or fallback
     logger.warning(f"aicommits 生成的信息含推理标记 (模型可能是 reasoner), 已修正为: {replacement!r}")
-    subprocess.run(["git", "commit", "--amend", "-m", replacement], cwd=cwd, check=True)
+    run_checked([shlex.join(["git", "commit", "--amend", "-m", replacement])], cwd=cwd)
 
 
 def aicommits_commit(cwd=None, fallback: str = "add") -> bool:
@@ -139,7 +140,7 @@ def aicommits_commit(cwd=None, fallback: str = "add") -> bool:
         return False
 
     try:
-        subprocess.run(["aicommits", "--yes"], cwd=cwd, check=True)
+        run_checked(["aicommits --yes"], cwd=cwd)
     except Exception as e:
         logger.error(f"aicommits commit failed: {e}")
         return False

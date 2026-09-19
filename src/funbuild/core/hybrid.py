@@ -55,7 +55,7 @@ class UvNpmHybridBuild(BaseBuild):
         assert self._uv is not None and self._npm is not None
         return self._uv._cmd_publish() + self._npm._cmd_publish()
 
-    def install(self, *args, **kwargs):
+    def install(self, *args, **kwargs) -> None:
         assert self._uv is not None and self._npm is not None
         logger.info(f"{self.name} install (hybrid: uv wheel + frontend deps)")
         run_checked(self._uv._cmd_build() + self._uv._cmd_install() + self._uv._cmd_delete())

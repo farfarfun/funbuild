@@ -123,15 +123,14 @@ class UpgradePinnedPackagesTest(unittest.TestCase):
             (app / "pyproject.toml").write_text('[project]\ndependencies = ["funtrack>=1.0.0"]\n')
 
             builder = new_builder(repo)
-            with patch("funbuild.core.submodule_workspace_build.subprocess.run") as mock_run:
+            with patch("funbuild.core.submodule_workspace_build.run_checked") as mock_run:
                 builder._upgrade_pinned_packages(str(app))
             mock_run.assert_has_calls(
                 [
-                    call(["uv", "remove", "funtrack"], cwd=str(app), check=True),
-                    call(["uv", "add", "funtrack"], cwd=str(app), check=True),
+                    call(["uv remove funtrack", "uv add funtrack"], cwd=str(app)),
                 ]
             )
-            assert mock_run.call_count == 2
+            assert mock_run.call_count == 1
 
     def test_upgrades_matching_npm_dependency(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -144,9 +143,9 @@ class UpgradePinnedPackagesTest(unittest.TestCase):
             (app / "package.json").write_text('{"dependencies": {"funtrack": "^1.0.0"}}')
 
             builder = new_builder(repo)
-            with patch("funbuild.core.submodule_workspace_build.subprocess.run") as mock_run:
+            with patch("funbuild.core.submodule_workspace_build.run_checked") as mock_run:
                 builder._upgrade_pinned_packages(str(app))
-            mock_run.assert_called_once_with(["npm", "install", "funtrack@latest", "--save"], cwd=str(app), check=True)
+            mock_run.assert_called_once_with(["npm install funtrack@latest --save"], cwd=str(app))
 
     def test_upgrades_matching_flutter_dependency(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -159,9 +158,9 @@ class UpgradePinnedPackagesTest(unittest.TestCase):
             (app / "pubspec.yaml").write_text("dependencies:\n  flutter:\n    sdk: flutter\n  funtrack: ^1.0.0\n")
 
             builder = new_builder(repo)
-            with patch("funbuild.core.submodule_workspace_build.subprocess.run") as mock_run:
+            with patch("funbuild.core.submodule_workspace_build.run_checked") as mock_run:
                 builder._upgrade_pinned_packages(str(app))
-            mock_run.assert_called_once_with(["dart", "pub", "add", "funtrack"], cwd=str(app), check=True)
+            mock_run.assert_called_once_with(["dart pub add funtrack"], cwd=str(app))
 
     def test_no_match_skips_upgrade(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -174,7 +173,7 @@ class UpgradePinnedPackagesTest(unittest.TestCase):
             (app / "pyproject.toml").write_text('[project]\ndependencies = ["requests>=2.0"]\n')
 
             builder = new_builder(repo)
-            with patch("funbuild.core.submodule_workspace_build.subprocess.run") as mock_run:
+            with patch("funbuild.core.submodule_workspace_build.run_checked") as mock_run:
                 builder._upgrade_pinned_packages(str(app))
             mock_run.assert_not_called()
 

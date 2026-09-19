@@ -43,18 +43,11 @@ def is_org_repo(repo_path: str, org: str = "farfarfun") -> bool:
     仓库却被判成外部, 于是拿不到许可证元数据、authors、urls, 也不走 ruff 格式化。
     真正要问的是 remote 指向谁, 就直接问 remote。
     """
-    try:
-        out = subprocess.run(
-            ["git", "-C", repo_path, "remote", "get-url", "origin"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-    except Exception:
-        return False
-    if out.returncode != 0:
-        return False
-    url = out.stdout.strip().lower()
+    url = run_shell(
+        shlex.join(["git", "-C", repo_path, "remote", "get-url", "origin"]),
+        printf=False,
+        timeout=10,
+    ).lower()
     # 同时匹配 https://github.com/<org>/x 与 git@github.com:<org>/x
     return f"/{org}/" in url or f":{org}/" in url
 
@@ -150,6 +143,7 @@ class BaseBuild:
         run_checked(["git pull"])
 
     def _changed_files(self):
+        # ponytail: funshell 仅返回 strip 后的文本; 支持二进制 stdout 后再迁移这处。
         output = subprocess.run(
             ["git", "status", "--porcelain=v1", "-z", "--untracked-files=all"],
             cwd=self.repo_path,
@@ -194,18 +188,18 @@ class BaseBuild:
 
         changes = self._changed_files()
         if changes:
-            subprocess.run(["git", "reset", "--quiet"], cwd=self.repo_path, check=True)
+            run_checked(["git reset --quiet"], cwd=self.repo_path)
         for start in range(0, len(changes), batch_size):
             paths = list(dict.fromkeys(path for change in changes[start : start + batch_size] for path in change[2]))
-            subprocess.run(["git", "add", "-A", "-f", "--", *paths], cwd=self.repo_path, check=True)
+            run_checked([shlex.join(["git", "add", "-A", "-f", "--", *paths])], cwd=self.repo_path)
             # 本批内容可能已被上一次提交带走 (如 aicommits 提交了全部暂存内容),
             # 此时 git commit 会因无内容可提交而失败, 直接跳过。
             if not has_staged_changes(self.repo_path):
                 continue
             if message is None and aicommits_commit(cwd=self.repo_path):
                 continue
-            subprocess.run(["git", "commit", "-m", message or "add"], cwd=self.repo_path, check=True)
-        subprocess.run(["git", "push"], cwd=self.repo_path, check=True)
+            run_checked([shlex.join(["git", "commit", "-m", message or "add"])], cwd=self.repo_path)
+        run_checked(["git push"], cwd=self.repo_path)
 
     def _submodule_paths(self) -> list[str]:
         """当前仓库已初始化的直接 submodule 绝对路径列表。
@@ -213,17 +207,9 @@ class BaseBuild:
         未初始化的 submodule 目录里没有 .git, 没法 push, 过滤掉 (`git submodule
         status` 中以 "-" 打头的行)。无 submodule 或非 git 仓库时返回空列表。
         """
-        result = subprocess.run(
-            ["git", "submodule", "status"],
-            cwd=self.repo_path,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if result.returncode != 0:
-            return []
+        output = run_shell("git submodule status", printf=False, cwd=self.repo_path)
         paths = []
-        for line in result.stdout.splitlines():
+        for line in output.splitlines():
             if not line or line[0] == "-":
                 continue
             fields = line.strip().split()
@@ -251,7 +237,7 @@ class BaseBuild:
             if message is not None:
                 cmd += ["--message", message]
             cmd += ["--batch-size", str(batch_size)]
-            subprocess.run(cmd, cwd=submodule_path, check=True)
+            run_checked([shlex.join(cmd)], cwd=submodule_path)
         self.push(message=message, batch_size=batch_size)
 
     def install(self, *args, **kwargs) -> None:

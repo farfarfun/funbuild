@@ -191,7 +191,7 @@ class NpmFrontendBuild(BaseBuild):
             out.append(self._in_dir_shell(pkg_dir, self._build_cmd_for(cfg, pm)))
         return out
 
-    def install(self, *args, **kwargs):
+    def install(self, *args, **kwargs) -> None:
         """装依赖; 对带 bin 字段的 CLI 包再构建并本地全局装一份, 让 <cli> 命令
         反映当前工作树的代码, 跟 UVBuild 那边 build->本地装 wheel 的路数对齐。"""
         logger.info(f"{self.name} install (frontend dependencies)")

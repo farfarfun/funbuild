@@ -1,7 +1,6 @@
 #!/usr/bin/python3
 
 import os
-from typing import Union
 
 from .base import git_repo_root
 from .empty_build import EmptyBuild
@@ -16,17 +15,17 @@ from .uv_build import UVBuild
 from .version_file_build import VersionFileBuild
 
 
-def get_build() -> Union[
-    SubmoduleWorkspaceBuild,
-    UvNpmHybridBuild,
-    UVBuild,
-    PoetryBuild,
-    PypiBuild,
-    FlutterBuild,
-    NpmFrontendBuild,
-    VersionFileBuild,
-    EmptyBuild,
-]:
+def get_build() -> (
+    SubmoduleWorkspaceBuild
+    | UvNpmHybridBuild
+    | UVBuild
+    | PoetryBuild
+    | PypiBuild
+    | FlutterBuild
+    | NpmFrontendBuild
+    | VersionFileBuild
+    | EmptyBuild
+):
     """获取合适的构建类"""
     # 先归一化到仓库根: 清单探测 (./pyproject.toml、extbuild/) 和构建命令
     # (rm -rf dist、uv build --directory .) 全部按相对路径解析。从子目录运行时

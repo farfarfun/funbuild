@@ -3,12 +3,13 @@
 import json
 import os
 import re
-import subprocess
+import shlex
 
 import yaml
+from funshell import run_shell
 
 from .base import BaseBuild
-from .util import deep_get, dump_toml, load_toml, logger, parse_version
+from .util import deep_get, dump_toml, load_toml, logger, parse_version, run_checked
 
 # PEP 508 依赖声明串的包名部分, 如 "funlesson-core>=1.0.0" -> "funlesson-core",
 # "funlesson_core[extra]" -> "funlesson_core"。
@@ -181,8 +182,7 @@ class SubmoduleWorkspaceBuild(BaseBuild):
         for normalized in sorted(matched):
             pkg = pinned_normalized[normalized]
             logger.info(f"upgrade pinned dependency to latest (uv): {pkg} ({path})")
-            subprocess.run(["uv", "remove", pkg], cwd=path, check=True)
-            subprocess.run(["uv", "add", pkg], cwd=path, check=True)
+            run_checked([shlex.join(["uv", "remove", pkg]), shlex.join(["uv", "add", pkg])], cwd=path)
 
     def _upgrade_pinned_npm(self, path: str, package_json_path: str, pinned_normalized: dict[str, str]) -> None:
         matched = pinned_normalized.keys() & self._dependency_names_npm(package_json_path)
@@ -193,11 +193,12 @@ class SubmoduleWorkspaceBuild(BaseBuild):
             pkg = pinned_normalized[normalized]
             logger.info(f"upgrade pinned dependency to latest ({pm}): {pkg} ({path})")
             if pm == "pnpm":
-                subprocess.run(["pnpm", "add", f"{pkg}@latest"], cwd=path, check=True)
+                command = ["pnpm", "add", f"{pkg}@latest"]
             elif pm == "yarn":
-                subprocess.run(["yarn", "add", f"{pkg}@latest"], cwd=path, check=True)
+                command = ["yarn", "add", f"{pkg}@latest"]
             else:
-                subprocess.run(["npm", "install", f"{pkg}@latest", "--save"], cwd=path, check=True)
+                command = ["npm", "install", f"{pkg}@latest", "--save"]
+            run_checked([shlex.join(command)], cwd=path)
 
     def _upgrade_pinned_flutter(self, path: str, pubspec_path: str, pinned_normalized: dict[str, str]) -> None:
         """委托给 `dart pub add <pkg>`: 包已在依赖里时, pub 会把约束重写为解析到
@@ -207,7 +208,7 @@ class SubmoduleWorkspaceBuild(BaseBuild):
         for normalized in sorted(matched):
             pkg = pinned_normalized[normalized]
             logger.info(f"upgrade pinned dependency to latest (pub): {pkg} ({path})")
-            subprocess.run(["dart", "pub", "add", pkg], cwd=path, check=True)
+            run_checked([shlex.join(["dart", "pub", "add", pkg])], cwd=path)
 
     def _upgrade_pinned_packages(self, path: str) -> None:
         """把 `path` 这个 app 依赖里命中 `_pinned_packages()` 的包升级到最新版,
@@ -244,22 +245,18 @@ class SubmoduleWorkspaceBuild(BaseBuild):
         可用的上游分支。只在确实 detached 时才切换到远端默认分支, 已经在分支上
         则不动, 避免打断手动切到的 feature 分支。
         """
-        detached = (
-            subprocess.run(
-                ["git", "-C", path, "symbolic-ref", "-q", "HEAD"], capture_output=True, check=False
-            ).returncode
-            != 0
+        current_ref = run_shell(
+            shlex.join(["git", "-C", path, "symbolic-ref", "-q", "HEAD"]),
+            printf=False,
         )
-        if not detached:
+        if current_ref.startswith("refs/heads/"):
             return
-        result = subprocess.run(
-            ["git", "-C", path, "symbolic-ref", "refs/remotes/origin/HEAD"],
-            capture_output=True,
-            text=True,
-            check=False,
+        remote_head = run_shell(
+            shlex.join(["git", "-C", path, "symbolic-ref", "refs/remotes/origin/HEAD"]),
+            printf=False,
         )
-        branch = result.stdout.strip().rsplit("/", 1)[-1] if result.returncode == 0 else "master"
-        subprocess.run(["git", "-C", path, "switch", branch], check=True)
+        branch = remote_head.rsplit("/", 1)[-1] if remote_head.startswith("refs/remotes/") else "master"
+        run_checked([shlex.join(["git", "-C", path, "switch", branch])])
 
     def build(self, message: str | None = None, version: str | None = None, *args, **kwargs) -> None:
         """递增共享版本号, 对每个 app submodule 转发同一版本号的 `funbuild build`,
@@ -281,11 +278,11 @@ class SubmoduleWorkspaceBuild(BaseBuild):
                 continue
             logger.info(f"build {submodule_path} with shared version {self.version}")
             self._switch_to_tracked_branch(submodule_path)
-            subprocess.run(["git", "-C", submodule_path, "pull"], check=True)
+            run_checked([shlex.join(["git", "-C", submodule_path, "pull"])])
             self._upgrade_pinned_packages(submodule_path)
             cmd = ["funbuild", "build", "--version", self.version]
             if message is not None:
                 cmd.append(message)
-            subprocess.run(cmd, cwd=submodule_path, check=True)
+            run_checked([shlex.join(cmd)], cwd=submodule_path)
         self.push(message=message)
         self.tags()

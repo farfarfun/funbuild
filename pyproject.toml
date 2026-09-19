@@ -1,6 +1,6 @@
 [build-system]
-requires = [ "setuptools>=77",]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [project]
 name = "funbuild"
@@ -50,10 +50,10 @@ pythonpath = [ "src",]
 [tool.uv]
 package = true
 
-[tool.setuptools.package-data]
-funbuild = ["py.typed"]
+[tool.hatch.build.targets.wheel]
+packages = ["src/funbuild"]
 
 [tool.ruff.lint]
 select = [ "I", "E", "W", "B", "F", "UP", "RUF", "PL",]
 fixable = [ "I",]
-ignore = [ "E501", "UP006", "UP007", "PLR0911", "PLR0912", "PLR0913", "PLR0915", "PLR2004",]
+ignore = [ "E501", "UP006", "UP007", "PLR0911", "PLR0912", "PLR0913", "PLR0915", "PLR2004", "RUF001", "RUF002", "RUF003",]

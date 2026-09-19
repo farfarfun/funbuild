@@ -124,7 +124,10 @@ class CommitMessageTest(unittest.TestCase):
                 patch.object(BaseBuild, "pull"),
                 patch.object(BaseBuild, "upgrade"),
                 patch.object(BaseBuild, "tags"),
-                patch("funbuild.core.base.run_checked"),
+                patch.object(BaseBuild, "_cmd_delete", return_value=[]),
+                patch.object(BaseBuild, "_cmd_build", return_value=[]),
+                patch.object(BaseBuild, "_cmd_install", return_value=[]),
+                patch.object(BaseBuild, "_cmd_publish", return_value=[]),
             ):
                 builder.build(message="发布 1.2.3")
             subjects = self.subjects(repo)
