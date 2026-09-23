@@ -3,6 +3,7 @@
 import json
 import os
 import re
+from collections.abc import Callable
 
 from .util import dump_toml, load_toml, logger
 
@@ -12,7 +13,9 @@ from .util import dump_toml, load_toml, logger
 _PUBSPEC_VERSION_RE = re.compile(r"^(version:\s*)(\S+)(.*)$", re.MULTILINE)
 
 
-def replace_pubspec_version_line(raw: str, compute_new_token) -> tuple[str, int]:
+def replace_pubspec_version_line(
+    raw: str, compute_new_token: Callable[[str], str]
+) -> tuple[str, int]:
     """替换 pubspec.yaml 里的 version 行, 保留引号风格与行内注释。
 
     compute_new_token(inner) 接收去掉引号后的原值, 返回新值 (同样不带引号)。

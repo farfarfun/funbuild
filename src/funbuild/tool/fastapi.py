@@ -12,7 +12,7 @@ from typing import Any
 _api_routes_registry: list[dict[str, Any]] = []
 
 
-class api_route:
+class ApiRoute:
     """标记一个类方法为 API 路由, 实际挂载延迟到 `add_api_routes` 执行。"""
 
     def __init__(self, path: str, **kwargs: Any) -> None:
@@ -66,3 +66,6 @@ def add_api_routes(router: Any) -> None:
     for reg in _api_routes_registry:
         if router.__class__.__name__ == reg["cls"]:
             router.add_api_route(path=reg["path"], endpoint=getattr(router, reg["method"]), **reg["kwargs"])
+
+
+api_route = ApiRoute

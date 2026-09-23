@@ -2,7 +2,6 @@
 
 import os
 import shlex
-import subprocess
 from functools import lru_cache
 
 from funshell import run_shell
@@ -143,22 +142,21 @@ class BaseBuild:
         run_checked(["git pull"])
 
     def _changed_files(self):
-        # ponytail: funshell 仅返回 strip 后的文本; 支持二进制 stdout 后再迁移这处。
-        output = subprocess.run(
-            ["git", "status", "--porcelain=v1", "-z", "--untracked-files=all"],
+        output = run_shell(
+            "printf '__FUNBUILD_STATUS__'; git status --porcelain=v1 -z --untracked-files=all",
+            printf=False,
             cwd=self.repo_path,
-            check=True,
-            stdout=subprocess.PIPE,
-        ).stdout
-        fields = output.split(b"\0")
+        )
+        output = output.removeprefix("__FUNBUILD_STATUS__")
+        fields = output.split("\0")
         changes = []
         index = 0
         while index < len(fields) and fields[index]:
             record = fields[index]
-            paths = [os.fsdecode(record[3:])]
-            if b"R" in record[:2] or b"C" in record[:2]:
+            paths = [record[3:]]
+            if "R" in record[:2] or "C" in record[:2]:
                 index += 1
-                paths.append(os.fsdecode(fields[index]))
+                paths.append(fields[index])
             try:
                 modified = os.lstat(os.path.join(self.repo_path, paths[0])).st_mtime_ns
             except FileNotFoundError:
@@ -316,10 +314,11 @@ class BaseBuild:
             [
                 "git rm -r --cached .",
                 "git add .",
-                "git commit -m 'update .gitignore' || true",
-                "git gc --aggressive",
             ]
         )
+        if has_staged_changes(self.repo_path):
+            run_checked(["git commit -m 'update .gitignore'"], cwd=self.repo_path)
+        run_checked(["git gc --aggressive"], cwd=self.repo_path)
 
     def tags(self, *args, **kwargs) -> None:
         """为当前版本号打 `v<version>` 标签并强制推送到远端。

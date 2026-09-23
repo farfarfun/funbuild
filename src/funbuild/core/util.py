@@ -77,7 +77,7 @@ def _aicommits_available() -> bool:
     return False
 
 
-def has_staged_changes(cwd=None) -> bool:
+def has_staged_changes(cwd: str | None = None) -> bool:
     """暂存区是否有待提交内容。"""
     status = run_shell("git diff --staged --quiet", cwd=cwd).strip()
     if status not in {"0", "1"}:
@@ -150,7 +150,7 @@ def aicommits_commit(cwd=None, fallback: str = "add") -> bool:
     return True
 
 
-def deep_get(data: dict, *args):
+def deep_get(data: dict[str, Any], *args: str | int) -> Any:
     if not data:
         return None
     for arg in args:
@@ -165,7 +165,9 @@ def deep_get(data: dict, *args):
     return data
 
 
-def deep_create(data, *args, key, value):
+def deep_create(
+    data: dict[str, Any], *args: str | int, key: str | int, value: Any
+) -> dict[str, Any]:
     """递归创建嵌套字典"""
     res = data
     for arg in args:
