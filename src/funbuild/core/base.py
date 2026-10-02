@@ -131,7 +131,14 @@ class BaseBuild:
         return ["pip install dist/*.whl --force-reinstall"]
 
     def _cmd_delete(self) -> list[str]:
-        """清理命令"""
+        """清理构建产物。
+
+        这里只能删「生成物」。`build()` 在 publish 之后还会再跑一次本方法, 紧接着
+        就是 push —— 任何被版本控制的文件一旦列进来, 都会被当成「用户删除了它」
+        提交上去。`uv.lock` 曾经就在这个列表里, 于是每次发版都把 SPEC §5 要求提交
+        的 uv.lock 从仓库里删掉一次 (funbuild 自己的 1.6.81 发版提交就是实例)。
+        需要在构建前重新解析依赖的, 放到 `_cmd_build` 开头去做。
+        """
         return [
             "rm -rf dist",
             "rm -rf extbuild/*/dist",
@@ -139,7 +146,6 @@ class BaseBuild:
             "rm -rf extbuild/*/build",
             "rm -rf *.egg-info",
             "rm -rf extbuild/*/src/*.egg-info",
-            "rm -rf uv.lock",
         ]
 
     def upgrade(self, version: str | None = None, *args, **kwargs) -> None:

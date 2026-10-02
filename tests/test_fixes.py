@@ -820,5 +820,42 @@ class UVBuildNameTest(unittest.TestCase):
             self.assertEqual(builder.name, "explicit")
 
 
+class CleanupKeepsTrackedFilesTest(unittest.TestCase):
+    """回归: `_cmd_delete` 里混进了 `rm -rf uv.lock`, 而 `build()` 在 publish 之后
+    还会再跑一次 `_cmd_delete` 并紧接着 push —— 于是每次发版都把 SPEC §5 要求提交的
+    uv.lock 从仓库里删掉一次 (funbuild 自己的 1.6.81 发版提交就是实例)。"""
+
+    @contextlib.contextmanager
+    def builder(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp) / "pkg"
+            repo.mkdir()
+            (repo / "pyproject.toml").write_text('[project]\nname = "pkg"\nversion = "1.0.0"\n', encoding="utf-8")
+            cwd = os.getcwd()
+            os.chdir(repo)
+            git_repo_root.cache_clear()
+            try:
+                with patch("funbuild.core.base.run_shell", return_value=str(repo)):
+                    yield UVBuild()
+            finally:
+                os.chdir(cwd)
+                git_repo_root.cache_clear()
+
+    def test_cleanup_does_not_touch_uv_lock(self):
+        with self.builder() as build:
+            for command in build._cmd_delete():
+                self.assertNotIn("uv.lock", command)
+
+    def test_cleanup_only_removes_build_artifacts(self):
+        with self.builder() as build:
+            for command in build._cmd_delete():
+                self.assertRegex(command, r"dist|build|egg-info")
+
+    def test_build_still_refreshes_the_lock_first(self):
+        """删 lock 重新解析的意图保留下来, 只是挪到构建之前。"""
+        with self.builder() as build:
+            self.assertEqual(build._cmd_build()[:2], ["rm -rf uv.lock", "uv lock --prerelease=allow"])
+
+
 if __name__ == "__main__":
     unittest.main()

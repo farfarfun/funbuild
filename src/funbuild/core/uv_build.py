@@ -249,8 +249,15 @@ class UVBuild(BaseBuild):
         return cmds
 
     def _cmd_build(self) -> list[str]:
-        """构建命令: 依次在各包目录构建, wheel 输出到 dist/funbuild/<唯一子目录>。"""
+        """构建命令: 依次在各包目录构建, wheel 输出到 dist/funbuild/<唯一子目录>。
+
+        先删 uv.lock 再 `uv lock`: 组织内的依赖刚刚才各自发了新版, 保留旧 lock 的话
+        `uv lock` 只做增量更新, 会把上一轮解析出的旧版本继续钉住。这一步必须留在
+        构建之前, 不能放进 `_cmd_delete` —— 那个方法在 publish 之后还会再跑一次,
+        跟着 push 走, 等于把仓库里该提交的 uv.lock 删掉。
+        """
         result = [
+            "rm -rf uv.lock",
             "uv lock --prerelease=allow",
         ]
         if self.is_org_repo:
