@@ -9,8 +9,15 @@ from .version_sync import sync_all_manifest_versions
 class PypiBuild(BaseBuild):
     """PyPI构建类"""
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, name: str | None = None) -> None:
+        """初始化 PyPI 构建器。
+
+        参数:
+            name: 包名；为 None 时使用 Git 仓库根目录名。
+        返回:
+            无。
+        """
+        super().__init__(name=name)
         self.version_path = "./script/__version__.md"
 
     def check_type(self) -> bool:

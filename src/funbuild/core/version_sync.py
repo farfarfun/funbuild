@@ -5,12 +5,16 @@ import os
 import re
 from collections.abc import Callable
 
-from .util import dump_toml, load_toml, logger
+from .util import dump_toml, load_toml
 
 # 形如 `version: 1.0.0+42`, 可能带引号与行内注释; 只替换 major.minor.patch 部分,
 # 不动 `+42` 这类构建号后缀 —— 那是 FlutterBuild 自己在 upgrade 时才递增的字段,
 # 被别的清单 (如根 pyproject.toml) 同步过来时不该被覆盖或清空。
 _PUBSPEC_VERSION_RE = re.compile(r"^(version:\s*)(\S+)(.*)$", re.MULTILINE)
+
+
+class ManifestVersionSyncError(RuntimeError):
+    """版本清单写入失败，发布流程必须立即终止。"""
 
 
 def replace_pubspec_version_line(
@@ -185,14 +189,14 @@ def sync_all_manifest_versions(version: str) -> None:
         try:
             _sync_package_json_version_file(path, v)
         except (OSError, json.JSONDecodeError, TypeError, KeyError) as e:
-            logger.warning(f"sync package.json version skipped {path}: {e}")
+            raise ManifestVersionSyncError(f"同步版本清单失败: {path}: {e}") from e
     for path in _collect_pyproject_paths_for_version_sync():
         try:
             _sync_pyproject_version_file(path, v)
-        except Exception as e:
-            logger.warning(f"sync pyproject version skipped {path}: {e}")
+        except (OSError, TypeError, ValueError) as e:
+            raise ManifestVersionSyncError(f"同步版本清单失败: {path}: {e}") from e
     for path in _collect_pubspec_paths_for_version_sync():
         try:
             _sync_pubspec_version_file(path, v)
         except OSError as e:
-            logger.warning(f"sync pubspec.yaml version skipped {path}: {e}")
+            raise ManifestVersionSyncError(f"同步版本清单失败: {path}: {e}") from e

@@ -26,8 +26,15 @@ class FlutterBuild(BaseBuild):
 
     PUBSPEC_PATH = "./pubspec.yaml"
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, name: str | None = None) -> None:
+        """初始化 Flutter 构建器。
+
+        参数:
+            name: 包名；为 None 时使用 Git 仓库根目录名。
+        返回:
+            无。
+        """
+        super().__init__(name=name)
         self._build_number: int | None = None
         self._funbuild_cfg: dict = {}
         self._pubspec_name: str = self.name

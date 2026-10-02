@@ -9,8 +9,15 @@ from .uv_build import UVBuild
 class UvNpmHybridBuild(BaseBuild):
     """根目录为 UV ([project]) 的 Python 包, 且存在可构建的前端 package.json 时, 一条命令串联 UV 与前端构建/安装/发布."""
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, name: str | None = None) -> None:
+        """初始化 UV 与前端混合构建器。
+
+        参数:
+            name: 包名；为 None 时使用 Git 仓库根目录名。
+        返回:
+            无。
+        """
+        super().__init__(name=name)
         self._uv: UVBuild | None = None
         self._npm: NpmFrontendBuild | None = None
 
@@ -55,8 +62,13 @@ class UvNpmHybridBuild(BaseBuild):
         assert self._uv is not None and self._npm is not None
         return self._uv._cmd_publish() + self._npm._cmd_publish()
 
-    def install(self, *args, **kwargs) -> None:
+    def install(self) -> None:
+        """构建并安装 Python wheel 与前端依赖。
+
+        返回:
+            无。
+        """
         assert self._uv is not None and self._npm is not None
         logger.info(f"{self.name} install (hybrid: uv wheel + frontend deps)")
         run_checked(self._uv._cmd_build() + self._uv._cmd_install() + self._uv._cmd_delete())
-        self._npm.install(*args, **kwargs)
+        self._npm.install()

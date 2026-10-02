@@ -339,7 +339,7 @@ class AicommitsProbeTest(unittest.TestCase):
 
     def test_available_cli_is_invoked(self):
         with patch("funbuild.core.util.shutil.which", return_value="/usr/bin/aicommits"):
-            with patch("funbuild.core.util.run_shell", side_effect=["1", "0", "feat: generated"]):
+            with patch("funbuild.core.util.run_shell", side_effect=["1", "0", "功能: 自动生成信息"]):
                 with patch("funbuild.core.util.run_checked") as run:
                     util.aicommits_commit()
         run.assert_called_once_with(["aicommits --yes"], cwd=None)
@@ -382,22 +382,26 @@ class SanitizeCommitMessageTest(unittest.TestCase):
 class RepairGeneratedMessageTest(unittest.TestCase):
     """信息被污染时必须就地 amend, 不能让它留在历史里。"""
 
-    def repair(self, generated, fallback="add"):
+    def repair(self, generated, fallback="维护: 更新项目文件"):
         with patch("funbuild.core.util.run_shell", return_value=generated):
             with patch("funbuild.core.util.run_checked") as run:
                 util._repair_generated_message("/repo", fallback)
         return run.call_args_list
 
     def test_think_only_message_is_amended_to_fallback(self):
-        amends = self.repair("<think>\n", fallback="add")
-        self.assertEqual(amends, [call(["git commit --amend -m add"], cwd="/repo")])
+        amends = self.repair("<think>\n")
+        self.assertEqual(amends, [call(["git commit --amend -m '维护: 更新项目文件'"], cwd="/repo")])
 
     def test_recoverable_message_is_amended_to_conclusion(self):
-        amends = self.repair("<think>想了想</think>\nfix: 真正的信息")
-        self.assertEqual(amends, [call(["git commit --amend -m 'fix: 真正的信息'"], cwd="/repo")])
+        amends = self.repair("<think>想了想</think>\n修复: 真正的信息")
+        self.assertEqual(amends, [call(["git commit --amend -m '修复: 真正的信息'"], cwd="/repo")])
 
     def test_clean_message_is_left_alone(self):
-        self.assertEqual(self.repair("fix: 一条正常的信息\n"), [])
+        self.assertEqual(self.repair("修复: 一条正常的信息\n"), [])
+
+    def test_non_chinese_generated_message_is_amended_to_fallback(self):
+        amends = self.repair("fix: generated message")
+        self.assertEqual(amends, [call(["git commit --amend -m '维护: 更新项目文件'"], cwd="/repo")])
 
 
 class UpgradeCommandVersionOptionTest(unittest.TestCase):

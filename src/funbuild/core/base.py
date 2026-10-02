@@ -7,9 +7,11 @@ from functools import lru_cache
 from funshell import run_shell
 
 from .util import (
+    DEFAULT_COMMIT_MESSAGE,
     NotAGitRepositoryError,
     aicommits_commit,
     has_staged_changes,
+    is_valid_commit_message,
     logger,
     parse_version,
     run_checked,
@@ -172,7 +174,8 @@ class BaseBuild:
         —— aicommits 会无视外部信息自己生成一条, 因此指定了信息就不能再走它。
 
         参数:
-            message: 提交信息。为 None 时优先尝试 aicommits 自动生成, 失败则用 "add"。
+            message: 中文 `<类型>: <做了什么>` 格式的提交信息。为 None 时优先
+                尝试 aicommits 自动生成，失败则使用合规的中文回退信息。
             batch_size: 每次提交最多包含的文件数, 用于避免单次提交内容过大。
             *args, **kwargs: 由 CLI 透传, 当前实现未使用, 仅为接口一致性保留。
         返回:
@@ -183,6 +186,8 @@ class BaseBuild:
         logger.info(f"{self.name} push")
         if batch_size < 1:
             raise ValueError("batch_size must be at least 1")
+        if message is not None and not is_valid_commit_message(message):
+            raise ValueError("提交信息必须使用中文 `<类型>: <做了什么>` 格式")
 
         changes = self._changed_files()
         if changes:
@@ -196,7 +201,9 @@ class BaseBuild:
                 continue
             if message is None and aicommits_commit(cwd=self.repo_path):
                 continue
-            run_checked([shlex.join(["git", "commit", "-m", message or "add"])], cwd=self.repo_path)
+            run_checked(
+                [shlex.join(["git", "commit", "-m", message or DEFAULT_COMMIT_MESSAGE])], cwd=self.repo_path
+            )
         run_checked(["git push"], cwd=self.repo_path)
 
     def _submodule_paths(self) -> list[str]:
@@ -292,7 +299,7 @@ class BaseBuild:
                 "git tag -d $(git tag -l) || true",
                 "git checkout --orphan latest_branch",
                 "git add -A",
-                'git commit -am "clear history"',
+                'git commit -am "维护: 清理提交历史"',
                 f"git branch -D {current_branch} || true",
                 f"git branch -m {current_branch}",
                 f"git push -f origin {current_branch}",
@@ -317,7 +324,7 @@ class BaseBuild:
             ]
         )
         if has_staged_changes(self.repo_path):
-            run_checked(["git commit -m 'update .gitignore'"], cwd=self.repo_path)
+            run_checked(["git commit -m '维护: 更新忽略规则'"], cwd=self.repo_path)
         run_checked(["git gc --aggressive"], cwd=self.repo_path)
 
     def tags(self, *args, **kwargs) -> None:

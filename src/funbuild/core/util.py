@@ -21,6 +21,25 @@ class NotAGitRepositoryError(RuntimeError):
     """当前目录不在 git 仓库中。"""
 
 
+DEFAULT_COMMIT_MESSAGE = "维护: 更新项目文件"
+_COMMIT_MESSAGE_RE = re.compile(r"^[\u4e00-\u9fff]+: (?=.*[\u4e00-\u9fff])\S.*$")
+
+
+def is_valid_commit_message(message: str) -> bool:
+    """检查提交标题是否为中文 `<类型>: <做了什么>` 格式。
+
+    参数:
+        message: 待检查的完整提交信息，首行作为标题校验。
+    返回:
+        标题符合组织约定时返回 True，否则返回 False。
+    """
+    lines = (message or "").splitlines()
+    if not lines:
+        return False
+    subject = lines[0]
+    return _COMMIT_MESSAGE_RE.fullmatch(subject) is not None
+
+
 def load_toml(path: str) -> Any:
     """读取 TOML, 返回可像 dict 一样操作但保留原始排版的文档对象。
 
@@ -117,17 +136,17 @@ def _last_commit_message(cwd=None) -> str:
 
 
 def _repair_generated_message(cwd, fallback: str) -> None:
-    """aicommits 刚提交完就检查信息, 含思维链标记则就地 amend 修正。"""
+    """校验 aicommits 刚生成的信息，不合规时就地 amend 修正。"""
     original = _last_commit_message(cwd)
     cleaned = sanitize_commit_message(original)
-    if cleaned == original.strip():
+    if cleaned == original.strip() and is_valid_commit_message(cleaned):
         return
-    replacement = cleaned or fallback
-    logger.warning(f"aicommits 生成的信息含推理标记 (模型可能是 reasoner), 已修正为: {replacement!r}")
+    replacement = cleaned if is_valid_commit_message(cleaned) else fallback
+    logger.warning(f"aicommits 生成的信息不符合提交规范, 已修正为: {replacement!r}")
     run_checked([shlex.join(["git", "commit", "--amend", "-m", replacement])], cwd=cwd)
 
 
-def aicommits_commit(cwd=None, fallback: str = "add") -> bool:
+def aicommits_commit(cwd=None, fallback: str = DEFAULT_COMMIT_MESSAGE) -> bool:
     """让 aicommits 依据暂存内容自行生成信息并提交, 成功返回 True。
 
     只在调用方没有指定 commit 信息时才该走这条路: aicommits 完全无视外部传入的

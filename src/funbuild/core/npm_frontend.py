@@ -14,8 +14,15 @@ class NpmFrontendBuild(BaseBuild):
 
     ROOT_PACKAGE_JSON = "./package.json"
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, name: str | None = None) -> None:
+        """初始化前端构建器。
+
+        参数:
+            name: 包名；为 None 时使用 Git 仓库根目录名。
+        返回:
+            无。
+        """
+        super().__init__(name=name)
         self.package_json_paths: list[str] = []
         self._pkg: dict = {}
         self._pm = "npm"
@@ -191,9 +198,13 @@ class NpmFrontendBuild(BaseBuild):
             out.append(self._in_dir_shell(pkg_dir, self._build_cmd_for(cfg, pm)))
         return out
 
-    def install(self, *args, **kwargs) -> None:
+    def install(self) -> None:
         """装依赖; 对带 bin 字段的 CLI 包再构建并本地全局装一份, 让 <cli> 命令
-        反映当前工作树的代码, 跟 UVBuild 那边 build->本地装 wheel 的路数对齐。"""
+        反映当前工作树的代码, 跟 UVBuild 那边 build->本地装 wheel 的路数对齐。
+
+        返回:
+            无。
+        """
         logger.info(f"{self.name} install (frontend dependencies)")
         if not self.package_json_paths:
             self.package_json_paths = self._collect_package_json_paths()

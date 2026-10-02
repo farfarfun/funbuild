@@ -9,7 +9,7 @@ from unittest.mock import patch
 from funbuild.core import util
 from funbuild.core.base import BaseBuild
 
-AICOMMITS_MESSAGE = "chore: ai generated message"
+AICOMMITS_MESSAGE = "维护: 自动生成提交信息"
 
 
 def git(repo, *args):
@@ -62,7 +62,7 @@ class PushTest(unittest.TestCase):
             builder.repo_path = str(repo)
             builder.name = "repo"
             with patch("funbuild.core.base.aicommits_commit", return_value=False):
-                builder.push(message="batch", batch_size=20)
+                builder.push(message="维护: 分批提交文件", batch_size=20)
 
             commits = git(repo, "rev-list", "--reverse", "HEAD").splitlines()
             first_batch = git(repo, "diff-tree", "--no-commit-id", "--name-only", "-r", commits[1]).splitlines()
@@ -106,9 +106,9 @@ class CommitMessageTest(unittest.TestCase):
 
     def test_explicit_message_is_used_verbatim(self):
         with self.repo() as (builder, repo):
-            builder.push(message="修复了版本解析的边界问题")
+            builder.push(message="修复: 处理版本解析边界")
             subjects = self.subjects(repo)
-        self.assertEqual(subjects[0], "修复了版本解析的边界问题")
+        self.assertEqual(subjects[0], "修复: 处理版本解析边界")
         self.assertNotIn(AICOMMITS_MESSAGE, subjects)
 
     def test_omitted_message_lets_aicommits_generate(self):
@@ -129,9 +129,15 @@ class CommitMessageTest(unittest.TestCase):
                 patch.object(BaseBuild, "_cmd_install", return_value=[]),
                 patch.object(BaseBuild, "_cmd_publish", return_value=[]),
             ):
-                builder.build(message="发布 1.2.3")
+                builder.build(message="发布: 发布版本 1.2.3")
             subjects = self.subjects(repo)
-        self.assertEqual(subjects[0], "发布 1.2.3")
+        self.assertEqual(subjects[0], "发布: 发布版本 1.2.3")
+
+    def test_invalid_explicit_message_is_rejected_before_staging(self):
+        with self.repo() as (builder, repo):
+            with self.assertRaisesRegex(ValueError, "提交信息必须使用中文"):
+                builder.push(message="fix: invalid")
+            self.assertEqual(git(repo, "diff", "--cached", "--name-only"), "")
 
     def test_empty_batch_does_not_abort_push(self):
         """aicommits 会提交全部暂存内容, 后续批次可能无内容可提交, 不该让 push 失败。"""
@@ -200,7 +206,7 @@ class PushAllTest(unittest.TestCase):
             original_path = os.environ["PATH"]
             os.environ["PATH"] = f"{fake_bin}{os.pathsep}{original_path}"
             try:
-                builder.push_all(message="push all commit", batch_size=20)
+                builder.push_all(message="维护: 推送全部仓库", batch_size=20)
             finally:
                 os.environ["PATH"] = original_path
 

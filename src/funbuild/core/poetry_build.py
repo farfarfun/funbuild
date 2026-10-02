@@ -10,8 +10,15 @@ from .version_sync import sync_all_manifest_versions
 class PoetryBuild(BaseBuild):
     """Poetry构建类"""
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, name: str | None = None) -> None:
+        """初始化 Poetry 构建器。
+
+        参数:
+            name: 包名；为 None 时使用 Git 仓库根目录名。
+        返回:
+            无。
+        """
+        super().__init__(name=name)
         self.toml_path = "./pyproject.toml"
 
     def check_type(self) -> bool:
