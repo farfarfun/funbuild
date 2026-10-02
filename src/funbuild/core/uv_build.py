@@ -3,6 +3,7 @@
 import os
 import shlex
 from configparser import ConfigParser
+from typing import Any
 
 from .base import BaseBuild
 from .util import deep_create, deep_get, dump_toml, load_toml, logger
@@ -30,12 +31,18 @@ def _uv_bundle_out_dir_abs(repo_root: str, pkg_dir: str) -> str:
 class UVBuild(BaseBuild):
     """UV构建类"""
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.toml_paths = ["./pyproject.toml"]
+    def __init__(self, name: str | None = None) -> None:
+        """初始化 UV 构建器。
 
-        explicit_name = kwargs.get("name") or (args[0] if args else None)
-        if not explicit_name and os.path.exists(self.toml_paths[0]):
+        参数:
+            name: 包名; 为 None 时优先取 `[project].name`, 再退到 Git 仓库根目录名。
+        返回:
+            无。
+        """
+        super().__init__(name=name)
+        self.toml_paths: list[str] = ["./pyproject.toml"]
+
+        if not name and os.path.exists(self.toml_paths[0]):
             # self.name 默认取自目录名, 但 pyproject 改名(rename 场景常见)后目录名
             # 往往还没同步, 会让 config_format 用旧名重新生成 urls/description。
             # [project].name 才是包的真实身份, 存在就优先用它。
@@ -67,8 +74,12 @@ class UVBuild(BaseBuild):
             self.version = pv.strip() if isinstance(pv, str) and pv.strip() else "0.0.1"
         return True
 
-    def _write_version(self):
-        """写入版本号到所有pyproject.toml"""
+    def _write_version(self) -> None:
+        """把当前版本号写入所有 pyproject.toml, 并同步仓库内其它版本清单。
+
+        返回:
+            无。
+        """
         for toml_path in self.toml_paths:
             try:
                 config = load_toml(toml_path)
@@ -83,7 +94,7 @@ class UVBuild(BaseBuild):
     # LICENSE 文件的常见命名, 用于填充 PEP 639 的 project.license-files
     LICENSE_FILE_NAMES = ("LICENSE", "LICENSE.txt", "LICENSE.md", "COPYING")
 
-    def _apply_license_metadata(self, config, pkg_dir="."):
+    def _apply_license_metadata(self, config: Any, pkg_dir: str = ".") -> None:
         """按 PEP 639 (setuptools>=77) 声明许可证。
 
         旧写法 `[tool.setuptools] license-files = []` 会让 wheel 不带任何许可证文件;
@@ -126,8 +137,15 @@ class UVBuild(BaseBuild):
             # 声明了却找不到文件同样会让 setuptools 构建失败
             project.pop("license-files", None)
 
-    def config_format(self, config, pkg_dir="."):
-        """格式化配置文件"""
+    def config_format(self, config: Any, pkg_dir: str = ".") -> None:
+        """按组织约定补齐 pyproject 元信息 (许可证 / authors / urls / description)。
+
+        参数:
+            config: 已解析的 pyproject 文档对象, 原地修改。
+            pkg_dir: 该 pyproject 所在目录, 用于定位 LICENSE 文件。
+        返回:
+            无。
+        """
         if not self.is_org_repo:
             return
         self._apply_license_metadata(config, pkg_dir)

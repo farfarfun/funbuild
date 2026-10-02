@@ -339,7 +339,7 @@ class AicommitsProbeTest(unittest.TestCase):
 
     def test_available_cli_is_invoked(self):
         with patch("funbuild.core.util.shutil.which", return_value="/usr/bin/aicommits"):
-            with patch("funbuild.core.util.run_shell", side_effect=["1", "0", "功能: 自动生成信息"]):
+            with patch("funbuild.core.util.run_shell", side_effect=["1", "0", "feat: 自动生成信息"]):
                 with patch("funbuild.core.util.run_checked") as run:
                     util.aicommits_commit()
         run.assert_called_once_with(["aicommits --yes"], cwd=None)
@@ -382,7 +382,7 @@ class SanitizeCommitMessageTest(unittest.TestCase):
 class RepairGeneratedMessageTest(unittest.TestCase):
     """信息被污染时必须就地 amend, 不能让它留在历史里。"""
 
-    def repair(self, generated, fallback="维护: 更新项目文件"):
+    def repair(self, generated, fallback=util.DEFAULT_COMMIT_MESSAGE):
         with patch("funbuild.core.util.run_shell", return_value=generated):
             with patch("funbuild.core.util.run_checked") as run:
                 util._repair_generated_message("/repo", fallback)
@@ -390,18 +390,63 @@ class RepairGeneratedMessageTest(unittest.TestCase):
 
     def test_think_only_message_is_amended_to_fallback(self):
         amends = self.repair("<think>\n")
-        self.assertEqual(amends, [call(["git commit --amend -m '维护: 更新项目文件'"], cwd="/repo")])
+        self.assertEqual(amends, [call(["git commit --amend -m 'chore: 更新项目文件'"], cwd="/repo")])
 
     def test_recoverable_message_is_amended_to_conclusion(self):
-        amends = self.repair("<think>想了想</think>\n修复: 真正的信息")
-        self.assertEqual(amends, [call(["git commit --amend -m '修复: 真正的信息'"], cwd="/repo")])
+        amends = self.repair("<think>想了想</think>\nfix: 真正的信息")
+        self.assertEqual(amends, [call(["git commit --amend -m 'fix: 真正的信息'"], cwd="/repo")])
 
     def test_clean_message_is_left_alone(self):
-        self.assertEqual(self.repair("修复: 一条正常的信息\n"), [])
+        self.assertEqual(self.repair("fix: 一条正常的信息\n"), [])
 
-    def test_non_chinese_generated_message_is_amended_to_fallback(self):
+    def test_english_description_is_amended_to_fallback(self):
+        """SPEC 要求描述用中文, 纯英文描述得换成合规的回退信息。"""
         amends = self.repair("fix: generated message")
-        self.assertEqual(amends, [call(["git commit --amend -m '维护: 更新项目文件'"], cwd="/repo")])
+        self.assertEqual(amends, [call(["git commit --amend -m 'chore: 更新项目文件'"], cwd="/repo")])
+
+    def test_chinese_type_word_is_not_a_valid_type(self):
+        """回归: 类型必须是 SPEC 列的 ASCII 词, 中文词 (如 \"修复:\") 不合规。"""
+        amends = self.repair("修复: 这不是合规的类型")
+        self.assertEqual(amends, [call(["git commit --amend -m 'chore: 更新项目文件'"], cwd="/repo")])
+
+
+class IsValidCommitMessageTest(unittest.TestCase):
+    """回归: 曾把 SPEC §10 的 `<类型>: <做了什么>` 误读成「类型也必须是中文」,
+    于是 `fix: 修复版本解析` —— 完全合规的信息 —— 被判非法, 全组织 push 被堵死。"""
+
+    def test_spec_types_are_accepted(self):
+        for commit_type in util.COMMIT_MESSAGE_TYPES:
+            with self.subTest(commit_type=commit_type):
+                self.assertTrue(util.is_valid_commit_message(f"{commit_type}: 修复版本解析"))
+
+    def test_optional_scope_is_accepted(self):
+        self.assertTrue(util.is_valid_commit_message("fix(core): 修复版本解析"))
+
+    def test_body_after_subject_is_ignored(self):
+        self.assertTrue(util.is_valid_commit_message("feat: 新增发布流程\n\n正文随便写, 不参与校验"))
+
+    def test_default_fallback_message_is_itself_valid(self):
+        self.assertTrue(util.is_valid_commit_message(util.DEFAULT_COMMIT_MESSAGE))
+
+    def test_chinese_type_is_rejected(self):
+        self.assertFalse(util.is_valid_commit_message("修复: 处理版本解析边界"))
+
+    def test_unknown_type_is_rejected(self):
+        self.assertFalse(util.is_valid_commit_message("build: 构建产物"))
+
+    def test_english_description_is_rejected(self):
+        self.assertFalse(util.is_valid_commit_message("fix: parse version"))
+
+    def test_missing_type_is_rejected(self):
+        self.assertFalse(util.is_valid_commit_message("修复了版本解析的边界问题"))
+
+    def test_missing_space_after_colon_is_rejected(self):
+        self.assertFalse(util.is_valid_commit_message("fix:修复版本解析"))
+
+    def test_empty_and_none_are_rejected(self):
+        self.assertFalse(util.is_valid_commit_message(""))
+        self.assertFalse(util.is_valid_commit_message(None))
+        self.assertFalse(util.is_valid_commit_message("fix: "))
 
 
 class UpgradeCommandVersionOptionTest(unittest.TestCase):
@@ -440,17 +485,26 @@ class ReleaseAliasTest(unittest.TestCase):
         builder.build.assert_called_once_with(message=None, version=None)
 
     def test_release_accepts_positional_message(self):
-        builder = self.invoke(["release", "ship it"])
-        builder.build.assert_called_once_with(message="ship it", version=None)
+        builder = self.invoke(["release", "chore: 发布一下"])
+        builder.build.assert_called_once_with(message="chore: 发布一下", version=None)
 
     def test_build_accepts_version_option(self):
-        builder = self.invoke(["build", "ship it", "--version", "2.0.0"])
-        builder.build.assert_called_once_with(message="ship it", version="2.0.0")
+        builder = self.invoke(["build", "chore: 发布一下", "--version", "2.0.0"])
+        builder.build.assert_called_once_with(message="chore: 发布一下", version="2.0.0")
+
+    def test_invalid_message_exits_without_touching_builder(self):
+        """CLI 要给一句人话并以非 0 退出, 而不是甩一脸 ValueError traceback;
+        更不能先跑完 upgrade/build/publish 再在 push 那步失败。"""
+        for argv in (["build", "随手写的信息"], ["release", "随手写的信息"], ["push", "-m", "随手写的信息"]):
+            with self.subTest(argv=argv):
+                builder = self.invoke(argv)
+                builder.build.assert_not_called()
+                builder.push.assert_not_called()
 
     def test_release_matches_build(self):
         self.assertEqual(
-            self.invoke(["release", "same"]).build.call_args,
-            self.invoke(["build", "same"]).build.call_args,
+            self.invoke(["release", "chore: 同一条信息"]).build.call_args,
+            self.invoke(["build", "chore: 同一条信息"]).build.call_args,
         )
 
 

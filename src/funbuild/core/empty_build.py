@@ -1,5 +1,7 @@
 #!/usr/bin/python3
 
+from typing import Any
+
 from .base import BaseBuild
 from .util import logger
 
@@ -10,9 +12,6 @@ class EmptyBuild(BaseBuild):
     永远匹配, 因此必须排在注册表最后。
     """
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
     def check_type(self) -> bool:
         """兜底匹配。走到这里说明没有任何构建策略认领本仓库。"""
         logger.warning(
@@ -21,11 +20,11 @@ class EmptyBuild(BaseBuild):
         )
         return True
 
-    def _write_version(self):
-        pass
+    def _write_version(self) -> None:
+        """兜底类型没有版本清单可写, 空操作。"""
 
-    def config_format(self, config, pkg_dir="."):
-        pass
+    def config_format(self, config: Any, pkg_dir: str = ".") -> None:
+        """兜底类型不改写任何配置, 空操作。"""
 
     def _cmd_delete(self) -> list[str]:
         """清理命令"""

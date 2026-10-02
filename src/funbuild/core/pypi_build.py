@@ -28,8 +28,15 @@ class PypiBuild(BaseBuild):
             self.version = f.read().strip()
         return True
 
-    def _write_version(self):
-        """写入版本号到文件"""
+    def _write_version(self) -> None:
+        """把当前版本号写入 `script/__version__.md`, 并同步仓库内其它版本清单。
+
+        `script/__version__.md` 是这类仓库的版本**源头** (`check_type` 从它读取),
+        不能删除, 只能与 pyproject.toml 等清单一起同步递增。
+
+        返回:
+            无。
+        """
         with open(self.version_path, "w", encoding="utf-8") as f:
             f.write(self.version)
         sync_all_manifest_versions(self.version)

@@ -140,7 +140,7 @@ class NpmFrontendBuild(BaseBuild):
             self.version = root_ver
         return True
 
-    def _write_version(self):
+    def _write_version(self) -> None:
         for pj in self.package_json_paths:
             pkg = self._load_json_at(pj)
             pkg["version"] = self.version

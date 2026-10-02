@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.6.81]
+
+### 修复
+
+- 提交信息校验曾把 SPEC.md §10 的 `<类型>: <做了什么>` 误读成「连类型也必须是中文」，于是 `funbuild push -m "fix: 修复版本解析"` 这种完全合规的信息被判非法直接抛 `ValueError`；全组织的 push / build 都走这里，等于把发版路径整条堵死。类型现按 SPEC 取 `feat`/`fix`/`docs`/`refactor`/`test`/`chore`（允许 `fix(core): ...` 这类可选 scope），描述仍要求含中文。
+- 回退信息与内部维护提交（`clean`、`clean_history`）的类型一并改为合规的 `chore:`。
+- 提交信息校验下沉到 `build` / `push_all` 入口：此前只在 `push` 里校验，而 `push` 是发布之后才跑的，非法信息会先把包发上 PyPI 再报错，留下「线上有这个版本、仓库里没有对应提交和 tag」的半截状态。CLI 侧对非法信息给一行中文提示并以退出码 1 结束，不再甩 traceback。
+- 版本清单解析失败不再被静默跳过：`pyproject.toml` / `package.json` / `pubspec.yaml` 读不出来时抛 `ManifestVersionSyncError` 中止发布，避免只同步了一部分清单却照常发版。待查清单同时改为只纳入真实存在的根 `pyproject.toml`，使没有 `pyproject.toml` 的仓库（`VERSION` 文件仓库、纯前端、纯 Flutter）不受影响。
+
+### 变更
+
+- 补齐 `UVBuild.__init__`、`config_format` 与各构建类 `_write_version` / `check_type` 的类型标注和中文 docstring；删掉 `EmptyBuild` 里纯转发的 `__init__`。
+
+### 废弃
+
+- 无。
+
 ## [1.6.80]
 
 ### 新增

@@ -40,8 +40,12 @@ class PoetryBuild(BaseBuild):
         self.version = version.strip()
         return True
 
-    def _write_version(self):
-        """写入版本号到pyproject.toml"""
+    def _write_version(self) -> None:
+        """把当前版本号写入 `[tool.poetry].version`, 并同步其它版本清单。
+
+        返回:
+            无。
+        """
         a = load_toml(self.toml_path)
         a["tool"]["poetry"]["version"] = self.version
         dump_toml(a, self.toml_path)

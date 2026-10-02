@@ -5,7 +5,7 @@ import os
 import re
 from collections.abc import Callable
 
-from .util import dump_toml, load_toml
+from .util import dump_toml, load_toml, logger
 
 # 形如 `version: 1.0.0+42`, 可能带引号与行内注释; 只替换 major.minor.patch 部分,
 # 不动 `+42` 这类构建号后缀 —— 那是 FlutterBuild 自己在 upgrade 时才递增的字段,
@@ -17,9 +17,7 @@ class ManifestVersionSyncError(RuntimeError):
     """版本清单写入失败，发布流程必须立即终止。"""
 
 
-def replace_pubspec_version_line(
-    raw: str, compute_new_token: Callable[[str], str]
-) -> tuple[str, int]:
+def replace_pubspec_version_line(raw: str, compute_new_token: Callable[[str], str]) -> tuple[str, int]:
     """替换 pubspec.yaml 里的 version 行, 保留引号风格与行内注释。
 
     compute_new_token(inner) 接收去掉引号后的原值, 返回新值 (同样不带引号)。
@@ -38,7 +36,13 @@ def replace_pubspec_version_line(
 
 
 def _iter_pyproject_toml_paths() -> list[str]:
-    paths = ["./pyproject.toml"]
+    """仓库内所有待考察的 pyproject.toml 路径 (只返回真实存在的文件)。
+
+    根 pyproject.toml 过去是无条件加进来的, 配上「解析失败即中止」之后, 会让
+    没有 pyproject.toml 的仓库 (VERSION 文件仓库、纯前端、纯 Flutter) 一律在
+    版本同步时炸掉, 所以这里必须先判存在。
+    """
+    paths = ["./pyproject.toml"] if os.path.isfile("./pyproject.toml") else []
     for root in ("extbuild", "exts"):
         if os.path.isdir(root):
             for name in os.listdir(root):
@@ -51,10 +55,17 @@ def _iter_pyproject_toml_paths() -> list[str]:
 
 
 def _pyproject_supports_version_sync(path: str) -> bool:
+    """该 pyproject.toml 是否带 version 字段 (因此需要参与版本同步)。
+
+    解析失败不能静默跳过: 那样待同步清单会凭空少一个, 版本号写不进去, 发布照旧
+    继续, 最终线上版本与仓库清单不一致。只有「能解析、但确实没有 version 字段」
+    (如只写了 [tool.ruff] 的 pyproject) 才返回 False。
+    """
     try:
         cfg = load_toml(path)
-    except Exception:
-        return False
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        # tomlkit 的 ParseError 继承 ValueError
+        raise ManifestVersionSyncError(f"版本清单无法解析, 拒绝带着不一致的版本继续发布: {path}: {e}") from e
     proj = cfg.get("project")
     if isinstance(proj, dict) and "version" in proj:
         return True
@@ -71,13 +82,20 @@ def _collect_pyproject_paths_for_version_sync() -> list[str]:
 
 
 def _append_package_json_if_versioned(path: str, out: list[str]) -> None:
+    """package.json 带 version 字段时加入待同步清单。
+
+    读不出来 / 解析不了就报错中止, 不能静默少同步一个清单 (理由同
+    `_pyproject_supports_version_sync`)。
+    """
     if not os.path.isfile(path):
         return
     try:
         with open(path, encoding="utf-8") as f:
             pkg = json.load(f)
-    except (OSError, json.JSONDecodeError):
-        return
+    except (OSError, json.JSONDecodeError) as e:
+        raise ManifestVersionSyncError(f"版本清单无法解析, 拒绝带着不一致的版本继续发布: {path}: {e}") from e
+    if not isinstance(pkg, dict):
+        raise ManifestVersionSyncError(f"版本清单顶层不是对象, 无法写入版本: {path}")
     ver = pkg.get("version")
     if isinstance(ver, str) and ver.strip():
         out.append(path)
@@ -98,13 +116,14 @@ def _collect_package_json_paths_for_version_sync() -> list[str]:
 
 
 def _append_pubspec_if_versioned(path: str, out: list[str]) -> None:
+    """pubspec.yaml 带 version 行时加入待同步清单; 读不出来就报错中止。"""
     if not os.path.isfile(path):
         return
     try:
         with open(path, encoding="utf-8") as f:
             raw = f.read()
-    except OSError:
-        return
+    except OSError as e:
+        raise ManifestVersionSyncError(f"版本清单无法读取, 拒绝带着不一致的版本继续发布: {path}: {e}") from e
     if _PUBSPEC_VERSION_RE.search(raw):
         out.append(path)
 
@@ -169,7 +188,9 @@ def root_pyproject_project_version() -> str | None:
         return None
     try:
         cfg = load_toml(path)
-    except Exception:
+    except (OSError, ValueError, KeyError, TypeError) as e:
+        # 只读探测, 拿不到就让调用方回退到自己已解析的文档; 但不能连日志都不留。
+        logger.warning(f"无法从 {path} 读取主版本号, 回退到调用方自己解析的值: {e}")
         return None
     proj = cfg.get("project")
     if not isinstance(proj, dict):

@@ -7,6 +7,7 @@ from functools import lru_cache
 from funshell import run_shell
 
 from .util import (
+    COMMIT_MESSAGE_HINT,
     DEFAULT_COMMIT_MESSAGE,
     NotAGitRepositoryError,
     aicommits_commit,
@@ -53,6 +54,20 @@ def is_org_repo(repo_path: str, org: str = "farfarfun") -> bool:
     return f"/{org}/" in url or f":{org}/" in url
 
 
+def ensure_valid_commit_message(message: str | None) -> None:
+    """提交信息不合规就立刻抛错; message 为 None (交给 aicommits) 时放行。
+
+    参数:
+        message: 待校验的提交信息, None 表示未显式指定。
+    返回:
+        无。
+    异常:
+        ValueError: message 不符合 `<类型>: <中文描述>` 规范时抛出。
+    """
+    if message is not None and not is_valid_commit_message(message):
+        raise ValueError(f"{COMMIT_MESSAGE_HINT}; 收到 {message!r}")
+
+
 class BaseBuild:
     """构建工具的基类"""
 
@@ -77,11 +92,19 @@ class BaseBuild:
         return self.name.startswith(("fun", "nlt", "note"))
 
     def check_type(self) -> bool:
-        """检查是否为当前构建类型"""
+        """当前仓库是否属于这个构建类型; 命中时顺带把 self.version 读出来。
+
+        返回:
+            命中返回 True, 否则 False。
+        """
         raise NotImplementedError
 
-    def _write_version(self):
-        """写入版本号"""
+    def _write_version(self) -> None:
+        """把 self.version 写回本构建类型的版本清单。
+
+        返回:
+            无。
+        """
         raise NotImplementedError
 
     def __version_upgrade(self, step=128):
@@ -174,20 +197,20 @@ class BaseBuild:
         —— aicommits 会无视外部信息自己生成一条, 因此指定了信息就不能再走它。
 
         参数:
-            message: 中文 `<类型>: <做了什么>` 格式的提交信息。为 None 时优先
-                尝试 aicommits 自动生成，失败则使用合规的中文回退信息。
+            message: `<类型>: <中文描述>` 格式的提交信息 (类型取 feat/fix/docs/
+                refactor/test/chore)。为 None 时优先尝试 aicommits 自动生成,
+                失败则使用合规的回退信息。
             batch_size: 每次提交最多包含的文件数, 用于避免单次提交内容过大。
             *args, **kwargs: 由 CLI 透传, 当前实现未使用, 仅为接口一致性保留。
         返回:
             无。
         异常:
-            ValueError: batch_size 小于 1 时抛出。
+            ValueError: batch_size 小于 1, 或 message 不符合提交信息规范时抛出。
         """
         logger.info(f"{self.name} push")
         if batch_size < 1:
             raise ValueError("batch_size must be at least 1")
-        if message is not None and not is_valid_commit_message(message):
-            raise ValueError("提交信息必须使用中文 `<类型>: <做了什么>` 格式")
+        ensure_valid_commit_message(message)
 
         changes = self._changed_files()
         if changes:
@@ -201,9 +224,7 @@ class BaseBuild:
                 continue
             if message is None and aicommits_commit(cwd=self.repo_path):
                 continue
-            run_checked(
-                [shlex.join(["git", "commit", "-m", message or DEFAULT_COMMIT_MESSAGE])], cwd=self.repo_path
-            )
+            run_checked([shlex.join(["git", "commit", "-m", message or DEFAULT_COMMIT_MESSAGE])], cwd=self.repo_path)
         run_checked(["git push"], cwd=self.repo_path)
 
     def _submodule_paths(self) -> list[str]:
@@ -235,7 +256,12 @@ class BaseBuild:
             *args, **kwargs: 由 CLI 透传, 当前实现未使用, 仅为接口一致性保留。
         返回:
             无。
+        异常:
+            ValueError: message 不符合提交信息规范时抛出。
         """
+        # 先校验再下潜: 否则非法信息会在每个 submodule 的子进程里各失败一次,
+        # 还可能已经有前面几个 submodule 推送成功, 留下半截状态。
+        ensure_valid_commit_message(message)
         for submodule_path in self._submodule_paths():
             logger.info(f"push submodule: {submodule_path}")
             cmd = ["funbuild", "push"]
@@ -267,7 +293,12 @@ class BaseBuild:
             *args, **kwargs: 由 CLI 透传, 当前实现未使用, 仅为接口一致性保留。
         返回:
             无。
+        异常:
+            ValueError: message 不符合提交信息规范时抛出。
         """
+        # 必须在 publish 之前校验: push 是发布之后才跑的, 等到那时候才报错, 包已经
+        # 上了 PyPI, 却留下「线上有这个版本、仓库里没有对应提交和 tag」的半截状态。
+        ensure_valid_commit_message(message)
         logger.info(f"{self.name} build")
         self.pull()
         self.upgrade(version=version)
@@ -299,7 +330,7 @@ class BaseBuild:
                 "git tag -d $(git tag -l) || true",
                 "git checkout --orphan latest_branch",
                 "git add -A",
-                'git commit -am "维护: 清理提交历史"',
+                'git commit -am "chore: 清理提交历史"',
                 f"git branch -D {current_branch} || true",
                 f"git branch -m {current_branch}",
                 f"git push -f origin {current_branch}",
@@ -324,7 +355,7 @@ class BaseBuild:
             ]
         )
         if has_staged_changes(self.repo_path):
-            run_checked(["git commit -m '维护: 更新忽略规则'"], cwd=self.repo_path)
+            run_checked(["git commit -m 'chore: 更新忽略规则'"], cwd=self.repo_path)
         run_checked(["git gc --aggressive"], cwd=self.repo_path)
 
     def tags(self, *args, **kwargs) -> None:

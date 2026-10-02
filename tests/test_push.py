@@ -9,7 +9,7 @@ from unittest.mock import patch
 from funbuild.core import util
 from funbuild.core.base import BaseBuild
 
-AICOMMITS_MESSAGE = "维护: 自动生成提交信息"
+AICOMMITS_MESSAGE = "chore: 自动生成提交信息"
 
 
 def git(repo, *args):
@@ -62,7 +62,7 @@ class PushTest(unittest.TestCase):
             builder.repo_path = str(repo)
             builder.name = "repo"
             with patch("funbuild.core.base.aicommits_commit", return_value=False):
-                builder.push(message="维护: 分批提交文件", batch_size=20)
+                builder.push(message="chore: 分批提交文件", batch_size=20)
 
             commits = git(repo, "rev-list", "--reverse", "HEAD").splitlines()
             first_batch = git(repo, "diff-tree", "--no-commit-id", "--name-only", "-r", commits[1]).splitlines()
@@ -106,9 +106,9 @@ class CommitMessageTest(unittest.TestCase):
 
     def test_explicit_message_is_used_verbatim(self):
         with self.repo() as (builder, repo):
-            builder.push(message="修复: 处理版本解析边界")
+            builder.push(message="fix: 处理版本解析边界")
             subjects = self.subjects(repo)
-        self.assertEqual(subjects[0], "修复: 处理版本解析边界")
+        self.assertEqual(subjects[0], "fix: 处理版本解析边界")
         self.assertNotIn(AICOMMITS_MESSAGE, subjects)
 
     def test_omitted_message_lets_aicommits_generate(self):
@@ -129,15 +129,38 @@ class CommitMessageTest(unittest.TestCase):
                 patch.object(BaseBuild, "_cmd_install", return_value=[]),
                 patch.object(BaseBuild, "_cmd_publish", return_value=[]),
             ):
-                builder.build(message="发布: 发布版本 1.2.3")
+                builder.build(message="chore: 发布版本 1.2.3")
             subjects = self.subjects(repo)
-        self.assertEqual(subjects[0], "发布: 发布版本 1.2.3")
+        self.assertEqual(subjects[0], "chore: 发布版本 1.2.3")
 
     def test_invalid_explicit_message_is_rejected_before_staging(self):
         with self.repo() as (builder, repo):
-            with self.assertRaisesRegex(ValueError, "提交信息必须使用中文"):
+            with self.assertRaisesRegex(ValueError, "提交信息必须是"):
                 builder.push(message="fix: invalid")
             self.assertEqual(git(repo, "diff", "--cached", "--name-only"), "")
+
+    def test_spec_compliant_message_is_not_rejected(self):
+        """回归: `fix: <中文>` 是 SPEC §10 的标准写法, 不能被校验拦下。"""
+        with self.repo() as (builder, repo):
+            builder.push(message="fix: 修复版本解析")
+            self.assertEqual(self.subjects(repo)[0], "fix: 修复版本解析")
+
+    def test_invalid_message_is_rejected_before_publish(self):
+        """build 的校验必须在发布之前: 否则包已上 PyPI 才在 push 报错, 留下
+        「线上有这个版本、仓库里没有对应提交」的半截状态。"""
+        with self.repo() as (builder, _repo):
+            with (
+                patch.object(BaseBuild, "pull"),
+                patch.object(BaseBuild, "upgrade"),
+                patch.object(BaseBuild, "tags"),
+                patch.object(BaseBuild, "_cmd_delete", return_value=[]),
+                patch.object(BaseBuild, "_cmd_build", return_value=[]),
+                patch.object(BaseBuild, "_cmd_install", return_value=[]),
+                patch.object(BaseBuild, "_cmd_publish", return_value=["echo PUBLISHED"]) as publish,
+            ):
+                with self.assertRaisesRegex(ValueError, "提交信息必须是"):
+                    builder.build(message="随手写的信息")
+            publish.assert_not_called()
 
     def test_empty_batch_does_not_abort_push(self):
         """aicommits 会提交全部暂存内容, 后续批次可能无内容可提交, 不该让 push 失败。"""
@@ -206,7 +229,7 @@ class PushAllTest(unittest.TestCase):
             original_path = os.environ["PATH"]
             os.environ["PATH"] = f"{fake_bin}{os.pathsep}{original_path}"
             try:
-                builder.push_all(message="维护: 推送全部仓库", batch_size=20)
+                builder.push_all(message="chore: 推送全部仓库", batch_size=20)
             finally:
                 os.environ["PATH"] = original_path
 

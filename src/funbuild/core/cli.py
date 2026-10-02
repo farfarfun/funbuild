@@ -5,7 +5,7 @@ import typing
 import typer
 
 from .registry import get_build
-from .util import NotAGitRepositoryError
+from .util import COMMIT_MESSAGE_HINT, NotAGitRepositoryError, is_valid_commit_message
 
 
 def funbuild() -> None:
@@ -26,6 +26,12 @@ def funbuild() -> None:
                 typer.secho(f"错误: {e}", fg=typer.colors.RED, err=True)
                 raise typer.Exit(code=1) from None
         return cached[0]
+
+    def check_message(message: str | None) -> None:
+        """提交信息不合规时给一句人话再退出, 而不是甩一脸 ValueError traceback。"""
+        if message is not None and not is_valid_commit_message(message):
+            typer.secho(f"错误: {COMMIT_MESSAGE_HINT}; 收到 {message!r}", fg=typer.colors.RED, err=True)
+            raise typer.Exit(code=1)
 
     @cli.command()
     def upgrade(
@@ -60,6 +66,7 @@ def funbuild() -> None:
         if target not in (None, "all"):
             typer.secho(f'错误: push 的位置参数只接受 "all", 收到 {target!r}', fg=typer.colors.RED, err=True)
             raise typer.Exit(code=1)
+        check_message(message)
         if target == "all":
             builder().push_all(message, batch_size=batch_size)
         else:
@@ -82,6 +89,9 @@ def funbuild() -> None:
         ] = None,
     ):
         """构建发布"""
+        # 先校验: 不合规的信息要在 upgrade/构建/发布之前拦住, 否则会先把包发到
+        # PyPI 再在 push 那一步抛异常, 留下「已发布但没提交」的半截状态。
+        check_message(message)
         builder().build(message=message, version=version)
 
     # release 是 build 的别名: 复用同一函数对象而非复制签名, 避免两者日后漂移

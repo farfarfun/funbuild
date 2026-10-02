@@ -74,7 +74,7 @@ class FlutterBuild(BaseBuild):
             self._pubspec_name = pubspec_name.strip()
         return True
 
-    def _write_version(self):
+    def _write_version(self) -> None:
         with open(self.PUBSPEC_PATH, encoding="utf-8") as f:
             raw = f.read()
         next_build = self._build_number + 1 if self._build_number is not None else None

@@ -8,7 +8,7 @@ import shlex
 import yaml
 from funshell import run_shell
 
-from .base import BaseBuild
+from .base import BaseBuild, ensure_valid_commit_message
 from .util import deep_get, dump_toml, load_toml, logger, parse_version, run_checked
 
 # PEP 508 依赖声明串的包名部分, 如 "funlesson-core>=1.0.0" -> "funlesson-core",
@@ -43,6 +43,11 @@ class SubmoduleWorkspaceBuild(BaseBuild):
     CONFIG_PATH = "scripts/funbuild.toml"
 
     def check_type(self) -> bool:
+        """同时存在 `apps/` 目录与 `scripts/funbuild.toml` 时认领工作区仓库。
+
+        返回:
+            命中返回 True, 否则 False。
+        """
         if not os.path.isdir(os.path.join(self.repo_path, "apps")):
             return False
         config_path = os.path.join(self.repo_path, self.CONFIG_PATH)
@@ -69,7 +74,7 @@ class SubmoduleWorkspaceBuild(BaseBuild):
         self.version = raw[1:] if raw.startswith("v") else raw
         return True
 
-    def _write_version(self):
+    def _write_version(self) -> None:
         config_path = os.path.join(self.repo_path, self.CONFIG_PATH)
         config = load_toml(config_path)
         config["version"] = self.version
@@ -268,7 +273,11 @@ class SubmoduleWorkspaceBuild(BaseBuild):
             *args, **kwargs: 由 CLI 透传, 当前实现未使用, 仅为接口一致性保留。
         返回:
             无。
+        异常:
+            ValueError: message 不符合提交信息规范时抛出。
         """
+        # 与 BaseBuild.build 同理: 非法信息必须在任何 app 发布之前拦住。
+        ensure_valid_commit_message(message)
         logger.info(f"{self.name} build (submodule workspace)")
         self.pull()
         self.upgrade(version=version)

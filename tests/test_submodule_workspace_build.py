@@ -266,7 +266,7 @@ class BuildIntegrationTest(unittest.TestCase):
             os.chdir(main_src)
             try:
                 with patch("funbuild.core.submodule_workspace_build.logger"):
-                    builder.build(message="发布: 发布测试版本")
+                    builder.build(message="chore: 发布测试版本")
             finally:
                 os.chdir(original_cwd)
                 os.environ["PATH"] = original_path

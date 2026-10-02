@@ -22,6 +22,11 @@ class UvNpmHybridBuild(BaseBuild):
         self._npm: NpmFrontendBuild | None = None
 
     def check_type(self) -> bool:
+        """根目录同时是 UV Python 包和可构建前端时才认领。
+
+        返回:
+            命中混合仓库返回 True, 否则 False。
+        """
         uv = UVBuild()
         if not uv.check_type():
             return False
@@ -34,7 +39,7 @@ class UvNpmHybridBuild(BaseBuild):
         logger.info("detected hybrid repo: UV Python + npm/pnpm/yarn frontend, single build runs both")
         return True
 
-    def _write_version(self):
+    def _write_version(self) -> None:
         if self._uv is None:
             return
         self._uv.version = self.version

@@ -17,6 +17,11 @@ class VersionFileBuild(BaseBuild):
     VERSION_PATH = "./VERSION"
 
     def check_type(self) -> bool:
+        """根目录存在内容可解析的 `VERSION` 文件时认领。
+
+        返回:
+            命中返回 True, 否则 False。
+        """
         if not os.path.isfile(self.VERSION_PATH):
             return False
         try:
@@ -36,7 +41,7 @@ class VersionFileBuild(BaseBuild):
         self.version = raw[1:] if raw.startswith("v") else raw
         return True
 
-    def _write_version(self):
+    def _write_version(self) -> None:
         with open(self.VERSION_PATH, "w", encoding="utf-8") as f:
             f.write(f"{self.version}\n")
         sync_all_manifest_versions(self.version)
