@@ -488,7 +488,26 @@ class RepairGeneratedMessageTest(unittest.TestCase):
     def test_chinese_type_word_is_not_a_valid_type(self):
         """回归: 类型必须是 SPEC 列的 ASCII 词, 中文词 (如 \"修复:\") 不合规。"""
         amends = self.repair("修复: 这不是合规的类型")
-        self.assertEqual(amends, [call(["git commit --amend -m 'chore: 更新项目文件'"], cwd="/repo")])
+        self.assertEqual(amends, [call(["git commit --amend -m 'chore: 修复: 这不是合规的类型'"], cwd="/repo")])
+
+    def test_missing_type_prefix_is_prepended_not_discarded(self):
+        """aicommits 的 plain 模式只输出纯描述, 整条换成回退信息等于把描述丢掉。
+
+        funbuild 自己 1.6.84 到 1.6.90 的提交标题全是「更新项目文件」就是这么来的。
+        """
+        amends = self.repair("提交信息校验不再要求描述含中文")
+        self.assertEqual(amends, [call(["git commit --amend -m 'chore: 提交信息校验不再要求描述含中文'"], cwd="/repo")])
+
+    def test_out_of_table_type_is_replaced_not_stacked(self):
+        """conventional 还有 perf/style/ci 等类型, 不能叠成 `chore: perf: ...`。"""
+        amends = self.repair("perf: 加快依赖解析")
+        self.assertEqual(amends, [call(["git commit --amend -m 'chore: 加快依赖解析'"], cwd="/repo")])
+
+    def test_body_survives_the_prefix_repair(self):
+        amends = self.repair("放开提交信息校验\n\n正文照旧保留")
+        self.assertEqual(
+            amends, [call(["git commit --amend -m 'chore: 放开提交信息校验\n\n正文照旧保留'"], cwd="/repo")]
+        )
 
 
 class IsValidCommitMessageTest(unittest.TestCase):

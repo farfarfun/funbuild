@@ -211,13 +211,39 @@ def _last_commit_message(cwd=None) -> str:
     return run_shell("git log -1 --format=%B", printf=False, cwd=cwd)
 
 
+# 标题已有的 `<类型>:` 前缀, 类型可能不在 COMMIT_MESSAGE_TYPES 里 (conventional
+# 还有 perf / style / ci 等)
+_SUBJECT_TYPE_RE = re.compile(r"^([A-Za-z]+)(?:\([^()\s]+\))?: (?=\S)")
+
+
+def coerce_commit_message(message: str) -> str | None:
+    """把信息补成合规格式; 没有任何可用描述时返回 None。
+
+    aicommits 的 plain 模式 (`~/.aicommits` 里 `type=plain`, 也是它的默认值) 只输出
+    纯描述、不带类型前缀, 于是每一条都判非法 —— 整条换成回退信息等于把描述丢掉,
+    而缺的只是前缀。
+    """
+    if not message.strip():
+        return None
+    if is_valid_commit_message(message):
+        return message
+    subject, separator, body = message.partition("\n")
+    # 表外类型整个换掉, 不叠成 `chore: perf: ...`
+    match = _SUBJECT_TYPE_RE.match(subject)
+    description = (subject[match.end() :] if match else subject).strip()
+    if not description:
+        return None
+    # 不按描述猜类型: 让模型按 diff 判断才准, `aicommits config set type=conventional`
+    return f"chore: {description}{separator}{body}"
+
+
 def _repair_generated_message(cwd, fallback: str) -> None:
     """校验 aicommits 刚生成的信息，不合规时就地 amend 修正。"""
     original = _last_commit_message(cwd)
     cleaned = sanitize_commit_message(original)
     if cleaned == original.strip() and is_valid_commit_message(cleaned):
         return
-    replacement = cleaned if is_valid_commit_message(cleaned) else fallback
+    replacement = coerce_commit_message(cleaned) or fallback
     logger.warning(f"aicommits 生成的信息不符合提交规范, 已修正为: {replacement!r}")
     run_checked([shlex.join(["git", "commit", "--amend", "-m", replacement])], cwd=cwd)
 
