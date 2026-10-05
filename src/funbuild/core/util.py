@@ -271,7 +271,6 @@ def aicommits_commit(cwd=None, fallback: str = DEFAULT_COMMIT_MESSAGE) -> bool:
     if not message:
         logger.warning(f"aicommits 没有提交, 输出里也取不到可用信息: {output.strip()!r}")
         return False
-    logger.info(f"aicommits 只生成未提交 (非 TTY), 改由 funbuild 提交: {message!r}")
     _warn_if_unconventional(message)
     run_checked([shlex.join(["git", "commit", "-m", message])], cwd=cwd)
     return True
