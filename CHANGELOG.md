@@ -2,6 +2,11 @@
 
 ## [未发布]
 
+### 修复
+
+- `latest-packages` 查到的「最新版本」一直是上一个版本: `uv pip compile` 会用 uv 缓存的 index 快照, 而「刚把上游发出去、紧接着发下游」正是这个功能存在的理由 —— 缓存里存的恰好是上游发布之前的状态。`funmill-dev` 实测: 带缓存查到 `funmill-api==1.0.22`(1ms, 纯缓存命中), 真实最新版是 1.0.26。现在查询带 `--refresh-package <包名>`, 只刷名单里这一个包的元数据, 不用 `--refresh` / `--no-cache` 丢掉整个缓存(那会让每次发版都重新拉一遍所有依赖的元数据)。
+- 解析失败时 uv 写在 stderr 里的原因被整条丢掉, 报错只剩一句「无法解析 X 的最新版本」, 看不出是私有源没配、401、包名写错, 还是该包所有版本的 `requires-python` 都不匹配当前解释器。`run_shell(printf=False)` 只回传 stdout, 现在把 stderr 单独重定向到临时文件再读出来, 连同命令、工作目录一起带进 `LatestDependencyError`, 并明确指出私有 index 要配在哪 —— `~/.pypirc` 里的 `repository` 是 `uv publish` 的上传端点, 与解析用的 simple index 不是同一个 URL, funbuild 不会拿它去猜。
+
 ### 新增
 
 - `latest-packages` 名单里的包, 若在 `[project].dependencies`、`[project.optional-dependencies]`、`[dependency-groups]`(含 `extbuild/` `exts/` 子包)里都还没出现过, 现在会按最新版本追加到根 `pyproject.toml` 的 `[project].dependencies`(该键不存在时一并创建)。此前这种情况是静默跳过的 —— 在 `funflix-api` 里写上 `latest-packages = ["funflix"]` 却还没把 `funflix` 写进 `dependencies` 时, 整条配置不产生任何效果: 包不在依赖里, 既进不了 wheel metadata, 也不会被 `uv lock` 解析。

@@ -110,6 +110,14 @@ def resolve_latest_version(package: str, cwd: str) -> str:
     pypi.org 的 URL 则一律 404。`--no-deps` 让它只解析这一个包, 不会被不相干的
     传递依赖冲突拖垮, 也快得多。
 
+    `--refresh-package` 不是可选的优化, 没有它这个功能在主场景下必然给出错的
+    答案: uv 会缓存 index 的包版本列表, 而「刚把上游发出去、紧接着发下游」正是
+    这个功能存在的理由 —— 缓存里存的是上游发布之前的快照, 于是查到的「最新版」
+    是上一个版本。`funmill-dev` 里实测过: 带缓存查到 funmill-api==1.0.22 (1ms,
+    纯命中), 加上这个参数才查到真实的 1.0.26。只刷名单里这一个包, 不用
+    `--refresh` / `--no-cache` 丢掉整个缓存 —— 那会让每次发版都重新拉一遍所有
+    依赖的元数据。
+
     参数:
         package: 包名, 可带 extras 之外的任意大小写/分隔符写法。
         cwd: 解析时的工作目录, 用于读取仓库自己的 uv 配置 (index 等)。
@@ -121,24 +129,54 @@ def resolve_latest_version(package: str, cwd: str) -> str:
     # 不走 `printf ... | uv pip compile -`: 命令要经 shell=True 拼接,
     # 临时文件省掉一层引号转义, 也便于把失败信息原样带进异常。
     handle, requirement_path = tempfile.mkstemp(suffix=".in", prefix="funbuild-latest-")
+    error_handle, error_path = tempfile.mkstemp(suffix=".err", prefix="funbuild-latest-")
+    os.close(error_handle)
     try:
         with os.fdopen(handle, "w", encoding="utf-8") as f:
             f.write(f"{package}\n")
         command = shlex.join(
-            ["uv", "pip", "compile", "--no-header", "--no-deps", "--prerelease=allow", requirement_path]
+            [
+                "uv",
+                "pip",
+                "compile",
+                "--no-header",
+                "--no-deps",
+                "--prerelease=allow",
+                "--refresh-package",
+                package,
+                requirement_path,
+            ]
         )
-        # printf=False 才能拿到 stdout; 失败时 uv 把原因写 stderr, stdout 为空,
-        # 于是下面匹配不到锁定行, 统一走 LatestDependencyError。
-        output = run_shell(command, printf=False, cwd=cwd, timeout=300)
+        # printf=False 才能拿到 stdout。stderr 必须单独接出来: 解析失败的真正原因
+        # 全在那儿 (index 没配所以只查了 PyPI、私有源 401、该包所有版本的
+        # requires-python 都不匹配当前解释器), 而 run_shell 只回传 stdout ——
+        # 丢掉 stderr 的话, 报错就只剩一句「无法解析」, 看不出该去改什么。
+        output = run_shell(f"{command} 2>{shlex.quote(error_path)}", printf=False, cwd=cwd, timeout=300)
+
+        normalized = normalize_package_name(package)
+        for line in output.splitlines():
+            match = _PINNED_RE.match(line.strip())
+            if match and normalize_package_name(match.group("name")) == normalized:
+                return match.group("version")
+
+        try:
+            with open(error_path, encoding="utf-8", errors="replace") as f:
+                detail = f.read().strip()
+        except OSError as e:
+            detail = f"(读取 uv 错误输出失败: {e})"
+        raise LatestDependencyError(
+            f"无法解析 {package!r} 的最新版本, 拒绝带着过期的依赖下界继续发布。\n"
+            f"命令: {command}\n"
+            f"工作目录: {cwd}\n"
+            f"uv 输出: {detail or '(无)'}\n"
+            f"若该包只发布在私有 index 上, 得先让 uv 看得见那个 index: 在 "
+            f"{os.path.join(cwd, 'pyproject.toml')} 里配 [[tool.uv.index]], "
+            f"或在 ~/.config/uv/uv.toml 里全局配一次 —— funbuild 不会去猜这个地址, "
+            f"`~/.pypirc` 里的 repository 是上传端点, 与解析用的 simple index 不是同一个 URL。"
+        )
     finally:
         os.unlink(requirement_path)
-
-    normalized = normalize_package_name(package)
-    for line in output.splitlines():
-        match = _PINNED_RE.match(line.strip())
-        if match and normalize_package_name(match.group("name")) == normalized:
-            return match.group("version")
-    raise LatestDependencyError(f"无法解析 {package!r} 的最新版本, 拒绝带着过期的依赖下界继续发布: {command}")
+        os.unlink(error_path)
 
 
 def rewrite_requirement(requirement: str, version: str) -> str | None:

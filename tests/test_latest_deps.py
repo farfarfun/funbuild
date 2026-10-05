@@ -98,6 +98,16 @@ class ResolveLatestVersionTest(unittest.TestCase):
         self.assertIn("uv pip compile", mock_run.call_args.args[0])
         self.assertIn("--no-deps", mock_run.call_args.args[0])
 
+    def test_index_cache_is_refreshed_for_the_queried_package(self):
+        """不刷缓存就必然查到上一个版本: 上游是几秒前才发出去的。
+
+        实测过 funmill-api: 带缓存查到 1.0.22(1ms, 纯命中), 加上这个参数才查到
+        真实的 1.0.26。而「刚发完上游紧接着发下游」正是这个功能存在的理由。
+        """
+        with patch("funbuild.core.latest_deps.run_shell", return_value="funflix==1.9.0\n") as mock_run:
+            resolve_latest_version("funflix", "/tmp")
+        self.assertIn("--refresh-package funflix", mock_run.call_args.args[0])
+
     def test_matches_normalized_name(self):
         with patch("funbuild.core.latest_deps.run_shell", return_value="fun-flix==1.9.0\n"):
             self.assertEqual(resolve_latest_version("Fun_Flix", "/tmp"), "1.9.0")
@@ -108,20 +118,59 @@ class ResolveLatestVersionTest(unittest.TestCase):
             with self.assertRaises(LatestDependencyError):
                 resolve_latest_version("funflix", "/tmp")
 
+    def test_uv_stderr_is_carried_into_the_error(self):
+        """「检测不到」的原因全在 stderr 里, 丢掉它报错就只剩一句「无法解析」。"""
+
+        def capture(command, **kwargs):
+            # 复刻 run_shell 的行为: 只回传 stdout, stderr 按 `2>` 落到文件里
+            error_path = command.rsplit("2>", 1)[1].strip().strip("'")
+            with open(error_path, "w", encoding="utf-8") as f:
+                f.write("error: Package `funflix` was not found in the registry.")
+            return ""
+
+        with patch("funbuild.core.latest_deps.run_shell", side_effect=capture):
+            with self.assertRaises(LatestDependencyError) as ctx:
+                resolve_latest_version("funflix", "/srv/funflix-api")
+        message = str(ctx.exception)
+        self.assertIn("was not found in the registry", message)
+        # 私有源没配是「检测不到」最常见的原因, 报错得直接指出去哪儿改
+        self.assertIn("[[tool.uv.index]]", message)
+        self.assertIn("/srv/funflix-api", message)
+
     def test_other_packages_in_output_are_ignored(self):
         with patch("funbuild.core.latest_deps.run_shell", return_value="loguru==0.7.3\nfunflix==1.9.0\n"):
             self.assertEqual(resolve_latest_version("funflix", "/tmp"), "1.9.0")
 
-    def test_temp_requirement_file_is_removed(self):
+    def test_temp_files_are_removed(self):
         seen: list[str] = []
 
         def capture(command, **kwargs):
-            seen.append(command.split()[-1])
+            head, _, error_path = command.rpartition("2>")
+            seen.append(head.split()[-1])
+            seen.append(error_path.strip().strip("'"))
             return "funflix==1.9.0\n"
 
         with patch("funbuild.core.latest_deps.run_shell", side_effect=capture):
             resolve_latest_version("funflix", "/tmp")
-        self.assertFalse(os.path.exists(seen[0]))
+        self.assertEqual(len(seen), 2)
+        for path in seen:
+            self.assertFalse(os.path.exists(path), path)
+
+    def test_temp_files_are_removed_on_failure(self):
+        seen: list[str] = []
+
+        def capture(command, **kwargs):
+            head, _, error_path = command.rpartition("2>")
+            seen.append(head.split()[-1])
+            seen.append(error_path.strip().strip("'"))
+            return ""
+
+        with patch("funbuild.core.latest_deps.run_shell", side_effect=capture):
+            with self.assertRaises(LatestDependencyError):
+                resolve_latest_version("funflix", "/tmp")
+        self.assertEqual(len(seen), 2)
+        for path in seen:
+            self.assertFalse(os.path.exists(path), path)
 
 
 class SyncLatestDependenciesTest(unittest.TestCase):

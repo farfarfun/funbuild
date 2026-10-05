@@ -193,7 +193,7 @@ dependencies = ["funflix>=1.0.0"]
 latest-packages = ["funflix"]
 ```
 
-此后每次 `funbuild build` 都会在构建之前：向 index 查询 `funflix` 当前最新版本（走 `uv pip compile --no-deps`，因此自动沿用本仓库 `[[tool.uv.index]]` 配置的私有源），把 `dependencies` 里的下界改写为 `funflix>=<最新版>` 并写回 `pyproject.toml`，改动随本次发布的 `push` 一起提交。`[project.optional-dependencies]` 与 `[dependency-groups]`（含 `extbuild/` `exts/` 子包的 `pyproject.toml`）同样覆盖。
+此后每次 `funbuild build` 都会在构建之前：向 index 查询 `funflix` 当前最新版本（走 `uv pip compile --no-deps --refresh-package funflix`，因此自动沿用本仓库 `[[tool.uv.index]]` 配置的私有源，并绕过 uv 的 index 缓存——上游往往是几秒前才发出去的），把 `dependencies` 里的下界改写为 `funflix>=<最新版>` 并写回 `pyproject.toml`，改动随本次发布的 `push` 一起提交。`[project.optional-dependencies]` 与 `[dependency-groups]`（含 `extbuild/` `exts/` 子包的 `pyproject.toml`）同样覆盖。
 
 名单里的包如果在上述任何一处依赖声明里都还没出现过，会按最新版本追加到根 `pyproject.toml` 的 `[project].dependencies`（`dependencies` 键不存在时一并创建）：
 
@@ -234,11 +234,19 @@ dependencies = ["requests>=2", "funflix>=1.9.0"]
 funbuild latest-deps   # 只改写 pyproject.toml，不构建、不发布、不提交
 ```
 
-两点需要注意：
+几点需要注意：
 
 - **约束里不要留上界**。写成 `funflix>=1.0,<2` 时，`<2` 会被保留，下游永远拿不到 2.x。要「永远最新」就只写 `funflix` 或 `funflix>=x`。
 - **发布顺序由调用方保证**。`funflix` 必须先发完，`funflix-api` 才能解析到它的新版本。两者本来就该一起发时，更合适的做法是建一个 `<product>-dev` 编排仓库交给 `SubmoduleWorkspaceBuild`，一条 `funbuild build` 按顺序发完整条链。
-- 列在 `latest-packages` 里的包解析不出最新版本（私有源不可达、包名写错等）时会抛 `LatestDependencyError` 直接中止发布，不会沿用旧下界继续发出一个钉着过期上游的包。
+- **私有 index 必须让 uv 看得见**。查询走 `uv pip compile`，它只认 uv 自己的 index 配置：仓库 `pyproject.toml` 里的 `[[tool.uv.index]]`，或 `~/.config/uv/uv.toml` 里的全局配置（凭据可放 `~/.netrc`）。`~/.pypirc` **不算**——那里的 `repository` 是 `uv publish` 用的上传端点，与解析用的 simple index 不是同一个 URL，funbuild 不会拿它去猜。只发在私有源上的包，在没配 index 的仓库里会解析失败。
+
+  ```toml
+  [[tool.uv.index]]
+  name = "packages-pypi"
+  url = "https://packages.aliyun.com/<id>/pypi/<repo>"
+  ```
+
+- 解析不出最新版本（私有源没配或不可达、包名写错、该包所有版本的 `requires-python` 都不匹配当前解释器等）时会抛 `LatestDependencyError` 直接中止发布，不会沿用旧下界继续发出一个钉着过期上游的包。报错里带上 uv 自己的输出、工作目录和命令，便于直接定位。
 
 > Poetry 的 `[tool.poetry.dependencies]` 表形式暂不在覆盖范围内，目前只处理 PEP 621 的 `[project]` 依赖数组与 PEP 735 的 `[dependency-groups]`。
 
