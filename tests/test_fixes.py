@@ -481,10 +481,9 @@ class RepairGeneratedMessageTest(unittest.TestCase):
     def test_clean_message_is_left_alone(self):
         self.assertEqual(self.repair("fix: 一条正常的信息\n"), [])
 
-    def test_english_description_is_amended_to_fallback(self):
-        """SPEC 要求描述用中文, 纯英文描述得换成合规的回退信息。"""
-        amends = self.repair("fix: generated message")
-        self.assertEqual(amends, [call(["git commit --amend -m 'chore: 更新项目文件'"], cwd="/repo")])
+    def test_english_description_is_left_alone(self):
+        """描述不限语种: aicommits 多数时候生成英文, 不该一律被换成回退信息。"""
+        self.assertEqual(self.repair("fix: generated message"), [])
 
     def test_chinese_type_word_is_not_a_valid_type(self):
         """回归: 类型必须是 SPEC 列的 ASCII 词, 中文词 (如 \"修复:\") 不合规。"""
@@ -516,8 +515,9 @@ class IsValidCommitMessageTest(unittest.TestCase):
     def test_unknown_type_is_rejected(self):
         self.assertFalse(util.is_valid_commit_message("build: 构建产物"))
 
-    def test_english_description_is_rejected(self):
-        self.assertFalse(util.is_valid_commit_message("fix: parse version"))
+    def test_english_description_is_accepted(self):
+        """描述不限语种 —— 曾要求必须含中文, aicommits 的英文信息因此全被拒。"""
+        self.assertTrue(util.is_valid_commit_message("fix: parse version"))
 
     def test_missing_type_is_rejected(self):
         self.assertFalse(util.is_valid_commit_message("修复了版本解析的边界问题"))

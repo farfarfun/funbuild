@@ -30,27 +30,25 @@ class BuilderDetectionError(RuntimeError):
     """构建类型探测失败: 清单文件损坏导致无法判定该用哪个构建策略。"""
 
 
-# SPEC.md §10: 格式 `<类型>: <做了什么>`, 类型取下面这几个 ASCII 词, 描述用中文。
-# 类型**不是**中文词: 曾把规则误读成「连类型也得是中文」, 于是
-# `funbuild push -m "fix: 修复版本解析"` —— 完全合规的信息 —— 被判非法直接抛
-# ValueError。全组织的 push / build 都走这里, 等于把发版路径整条堵死。
+# SPEC.md §10: 格式 `<类型>: <做了什么>`, 类型取下面这几个 ASCII 词。
 COMMIT_MESSAGE_TYPES = ("feat", "fix", "docs", "refactor", "test", "chore")
 DEFAULT_COMMIT_MESSAGE = "chore: 更新项目文件"
-# 允许 conventional commits 的可选 scope (如 `fix(core): ...`); 描述必须含中文。
-_COMMIT_MESSAGE_RE = re.compile(rf"^(?:{'|'.join(COMMIT_MESSAGE_TYPES)})(?:\([^()\s]+\))?: (?=.*[\u4e00-\u9fff])\S.*$")
+# 允许 conventional commits 的可选 scope (如 `fix(core): ...`)。描述不限语种:
+# 曾要求必须含中文, 于是 aicommits 生成的英文信息一律被判非法, 每次发版都退回
+# DEFAULT_COMMIT_MESSAGE, 历史里只剩一串「更新项目文件」。
+_COMMIT_MESSAGE_RE = re.compile(rf"^(?:{'|'.join(COMMIT_MESSAGE_TYPES)})(?:\([^()\s]+\))?: \S.*$")
 COMMIT_MESSAGE_HINT = (
-    f"提交信息必须是 `<类型>: <中文描述>` 格式, 类型取 {'/'.join(COMMIT_MESSAGE_TYPES)}, "
-    f"例如 {DEFAULT_COMMIT_MESSAGE!r}"
+    f"提交信息必须是 `<类型>: <描述>` 格式, 类型取 {'/'.join(COMMIT_MESSAGE_TYPES)}, 例如 {DEFAULT_COMMIT_MESSAGE!r}"
 )
 
 
 def is_valid_commit_message(message: str) -> bool:
-    """检查提交标题是否为 `<类型>: <中文描述>` 格式。
+    """检查提交标题是否为 `<类型>: <描述>` 格式。
 
     参数:
         message: 待检查的完整提交信息，首行作为标题校验。
     返回:
-        标题符合组织约定 (类型取 COMMIT_MESSAGE_TYPES、描述含中文) 时返回 True，
+        标题符合组织约定 (类型取 COMMIT_MESSAGE_TYPES、描述非空) 时返回 True，
         否则返回 False。
     """
     lines = (message or "").splitlines()

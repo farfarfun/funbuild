@@ -136,7 +136,7 @@ class CommitMessageTest(unittest.TestCase):
     def test_invalid_explicit_message_is_rejected_before_staging(self):
         with self.repo() as (builder, repo):
             with self.assertRaisesRegex(ValueError, "提交信息必须是"):
-                builder.push(message="fix: invalid")
+                builder.push(message="随手改了点东西")
             self.assertEqual(git(repo, "diff", "--cached", "--name-only"), "")
 
     def test_spec_compliant_message_is_not_rejected(self):
@@ -144,6 +144,12 @@ class CommitMessageTest(unittest.TestCase):
         with self.repo() as (builder, repo):
             builder.push(message="fix: 修复版本解析")
             self.assertEqual(self.subjects(repo)[0], "fix: 修复版本解析")
+
+    def test_english_description_is_not_rejected(self):
+        """描述不限语种, 只有类型仍受约束。"""
+        with self.repo() as (builder, repo):
+            builder.push(message="fix: parse version")
+            self.assertEqual(self.subjects(repo)[0], "fix: parse version")
 
     def test_invalid_message_is_rejected_before_publish(self):
         """build 的校验必须在发布之前: 否则包已上 PyPI 才在 push 报错, 留下

@@ -118,7 +118,7 @@ pip install .
 
 > 命令名中的下划线会被 typer 转成连字符，因此是 `clean-history` 而非 `clean_history`。
 
-> `--message` / `message` 不传时为 `None`：此时优先交给 aicommits 生成提交信息，未安装 aicommits 才回退到默认信息 `chore: 更新项目文件`（定义在 `src/funbuild/core/util.py` 的 `DEFAULT_COMMIT_MESSAGE`）。传了值则必须符合 SPEC §10 的 `<类型>: <中文描述>` 格式，否则在任何改动发生之前就以非 0 退出码中止。
+> `--message` / `message` 不传时为 `None`：此时优先交给 aicommits 生成提交信息，未安装 aicommits 才回退到默认信息 `chore: 更新项目文件`（定义在 `src/funbuild/core/util.py` 的 `DEFAULT_COMMIT_MESSAGE`）。传了值则必须符合 SPEC §10 的 `<类型>: <描述>` 格式（类型取 `feat`/`fix`/`docs`/`refactor`/`test`/`chore`，描述不限语种），否则在任何改动发生之前就以非 0 退出码中止。
 
 ### 版本
 
@@ -154,7 +154,7 @@ funbuild push
 funbuild push --batch-size 50
 
 # 指定提交信息（未安装 aicommits 时生效）；注意这里是选项而非位置参数。
-# 信息必须是 `<类型>: <中文描述>`，英文描述会被校验直接拒绝。
+# 信息必须是 `<类型>: <描述>`；只校验类型，描述不限语种。
 funbuild push --message "fix: 修复拼写"
 
 # 先依次 push 每个 submodule，再 push 当前仓库
