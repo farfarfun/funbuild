@@ -1,7 +1,9 @@
 #!/usr/bin/python3
 
+import importlib.metadata
 import os
 import shlex
+import sys
 from functools import lru_cache
 
 from funshell import run_shell
@@ -139,6 +141,52 @@ class BaseBuild:
     def _cmd_install(self) -> list[str]:
         """安装命令"""
         return ["pip install dist/*.whl --force-reinstall"]
+
+    def _published_distributions(self) -> dict[str, str]:
+        """本次发布的分发名 -> 可直接拿去安装的项目目录。
+
+        默认只有根包; 多包仓库由子类补上子包 (见 UVBuild)。
+        """
+        return {self.name: self.repo_path}
+
+    def _install_into_running_env(self) -> None:
+        """把刚发布的版本装进「正在运行 funbuild 的那个环境」。
+
+        `_cmd_install` 那一步装的是项目自己的 `.venv`(uv 在仓库里的默认目标), 而用户
+        敲的命令往往装在别处 —— funbuild 自己就是如此: `funbuild` 在 py312, 发完版
+        命令仍跑旧代码, 改动要再发一版才「看起来生效」, 实际是永远差一版。
+
+        只升级这个环境里**已经装过**的分发, 没装过的不碰: 发业务包时不该往命令所在
+        的环境里塞一堆它并不需要的包。装的是工作区(此刻的代码正是刚发布的那一份),
+        不走 PyPI —— 索引有几分钟传播延迟, 刚发的版本常常拉到上一版。
+
+        这一步跑在 push/tag 之后, 失败只告警: 版本已发布、提交和 tag 都在, 唯一的
+        后果是本机没升级, 重跑一条命令即可, 不值得让整条发版流程算作失败。
+        """
+        # 跑在项目自己的 .venv 里时, 安装校验那一步装的就是这个环境, 无需再装
+        venv = os.path.join(self.repo_path, ".venv")
+        if os.path.exists(venv) and os.path.realpath(sys.prefix) == os.path.realpath(venv):
+            return
+
+        for dist, project_dir in self._published_distributions().items():
+            try:
+                installed = importlib.metadata.version(dist)
+            except importlib.metadata.PackageNotFoundError:
+                continue
+            except Exception as e:  # 元数据损坏不该拖垮发版
+                logger.warning(f"跳过 {dist} 的本机升级: 查不到已安装版本 ({e})")
+                continue
+            if not os.path.isdir(project_dir):
+                continue
+            command = shlex.join(["uv", "pip", "install", "--python", sys.executable, project_dir])
+            logger.info(f"升级 {sys.prefix} 里的 {dist} (当前 {installed})")
+            try:
+                status = run_shell(command).strip()
+            except Exception as e:
+                logger.warning(f"{dist} 的本机升级失败, 版本已发布, 手动重试: {command} ({e})")
+                continue
+            if status not in ("0", ""):
+                logger.warning(f"{dist} 的本机升级失败 (exit={status}), 版本已发布, 手动重试: {command}")
 
     def _cmd_delete(self) -> list[str]:
         """清理构建产物。
@@ -298,7 +346,7 @@ class BaseBuild:
         run_checked(self._cmd_build() + self._cmd_install() + self._cmd_delete())
 
     def build(self, message: str | None = None, version: str | None = None, *args, **kwargs) -> None:
-        """完整发布流程: pull -> upgrade -> 抬依赖下界 -> 清理 -> 构建 -> 安装校验 -> 发布 -> 清理 -> push -> tag。
+        """完整发布流程: pull -> upgrade -> 抬依赖下界 -> 清理 -> 构建 -> 安装校验 -> 发布 -> 清理 -> push -> tag -> 本机升级。
 
         任一步失败会立即中止 (由 run_checked 抛出异常), 不会继续 push 或打标签。
 
@@ -325,6 +373,9 @@ class BaseBuild:
         )
         self.push(message=message)
         self.tags()
+        # 放在最后: 发 funbuild 时这一步在替换 funbuild 自己的 site-packages, 万一
+        # 出问题也已经 push 过、tag 过, 不会留下「已发布但没提交」的半截状态。
+        self._install_into_running_env()
 
     def clean_history(self, *args, **kwargs) -> None:
         """抹掉全部 git 历史与标签并强推当前分支, 不可恢复且无二次确认。

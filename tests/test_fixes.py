@@ -4,7 +4,9 @@
 """
 
 import contextlib
+import importlib.metadata
 import os
+import shlex
 import sys
 import tempfile
 import unittest
@@ -1035,3 +1037,68 @@ class CleanDirsSanitizeTest(unittest.TestCase):
         builder._funbuild_cfg = {"cleanDirs": ["build", "../../"]}
         with patch.object(FlutterBuild, "_fvm_path_prefix", return_value=[]):
             self.assertEqual(builder._cmd_delete(), ["rm -rf build"])
+
+
+class InstallIntoRunningEnvTest(unittest.TestCase):
+    """发完版要把新版本装进「正在运行 funbuild 的那个环境」。
+
+    `_cmd_install` 装的是项目的 .venv, 而命令往往装在别处 —— funbuild 自己的
+    `funbuild` 在 py312, 连发 1.6.85/1.6.87/1.6.90/1.6.91 四版, py312 一直停在
+    1.6.87, 每次改动都「看起来没生效」。
+    """
+
+    def run_install(self, *, installed, repo_path="/repo", status="0"):
+        """installed: 本机已装的分发名 -> 版本; 不在表里的视为未安装。"""
+        builder = make_builder(repo_path=repo_path)
+
+        def version(dist):
+            if dist in installed:
+                return installed[dist]
+            raise importlib.metadata.PackageNotFoundError(dist)
+
+        with patch("funbuild.core.base.importlib.metadata.version", side_effect=version):
+            with patch("funbuild.core.base.os.path.isdir", return_value=True):
+                with patch("funbuild.core.base.run_shell", return_value=status) as run_shell:
+                    builder._install_into_running_env()
+        return [c.args[0] for c in run_shell.call_args_list]
+
+    def test_already_installed_distribution_is_upgraded(self):
+        commands = self.run_install(installed={"repo": "1.6.94"})
+        self.assertEqual(commands, [shlex.join(["uv", "pip", "install", "--python", sys.executable, "/repo"])])
+
+    def test_absent_distribution_is_left_alone(self):
+        """发业务包时不该往命令所在的环境里塞一堆它并不需要的包。"""
+        self.assertEqual(self.run_install(installed={}), [])
+
+    def test_failure_is_warned_not_raised(self):
+        """版本已发布、提交和 tag 都在, 唯一后果是本机没升级, 不该算发版失败。"""
+        with patch("funbuild.core.base.logger.warning") as warning:
+            self.run_install(installed={"repo": "1.6.94"}, status="1")
+        self.assertTrue(any("手动重试" in str(c) for c in warning.call_args_list))
+
+    def test_running_inside_project_venv_is_skipped(self):
+        """跑在项目自己的 .venv 里时, 安装校验那一步装的就是这个环境。"""
+        with tempfile.TemporaryDirectory() as temp:
+            os.makedirs(os.path.join(temp, ".venv"))
+            with patch("funbuild.core.base.sys.prefix", os.path.join(temp, ".venv")):
+                with patch("funbuild.core.base.run_shell") as run_shell:
+                    make_builder(repo_path=temp)._install_into_running_env()
+        run_shell.assert_not_called()
+
+    def test_build_installs_after_tagging(self):
+        """必须排在 push/tag 之后: 发 funbuild 时这一步在替换 funbuild 自己的
+        site-packages, 出问题不能留下「已发布但没提交」的半截状态。"""
+        builder = make_builder()
+        order = []
+        with patch.object(BaseBuild, "pull"), patch.object(BaseBuild, "upgrade"):
+            with patch.object(BaseBuild, "_sync_latest_dependencies"):
+                with patch("funbuild.core.base.run_checked"):
+                    with patch.object(BaseBuild, "push", side_effect=lambda **kw: order.append("push")):
+                        with patch.object(BaseBuild, "tags", side_effect=lambda: order.append("tag")):
+                            with patch.object(
+                                BaseBuild,
+                                "_install_into_running_env",
+                                side_effect=lambda: order.append("install"),
+                            ):
+                                builder.build(message="chore: 发版")
+        self.assertEqual(order, ["push", "tag", "install"])

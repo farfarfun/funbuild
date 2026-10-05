@@ -306,3 +306,16 @@ class UVBuild(BaseBuild):
     def _cmd_install(self) -> list[str]:
         """安装命令: 安装各包构建产物目录下的 wheel。"""
         return ["uv pip install dist/funbuild/*/*.whl"]
+
+    def _published_distributions(self) -> dict[str, str]:
+        """每个 pyproject 的 [project].name -> 它所在的目录 (含 extbuild/exts 子包)。
+
+        分发名得按清单读, 不能用目录名: `[project].name` 才是包的真实身份, 重命名后
+        目录名往往还没跟上。
+        """
+        found: dict[str, str] = {}
+        for toml_path in self.toml_paths:
+            name = deep_get(load_toml(toml_path), "project", "name")
+            if isinstance(name, str) and name.strip():
+                found[name.strip()] = os.path.realpath(os.path.dirname(toml_path) or ".")
+        return found or super()._published_distributions()
