@@ -133,11 +133,12 @@ class CommitMessageTest(unittest.TestCase):
             subjects = self.subjects(repo)
         self.assertEqual(subjects[0], "chore: 发布版本 1.2.3")
 
-    def test_invalid_explicit_message_is_rejected_before_staging(self):
+    def test_invalid_explicit_message_is_committed_as_is(self):
+        """不合约定只告警: 曾经抛 ValueError / 退回兜底信息, 判错一次就把用户写好的
+        描述永久换成了「更新项目文件」。"""
         with self.repo() as (builder, repo):
-            with self.assertRaisesRegex(ValueError, "提交信息必须是"):
-                builder.push(message="随手改了点东西")
-            self.assertEqual(git(repo, "diff", "--cached", "--name-only"), "")
+            builder.push(message="随手改了点东西")
+            self.assertEqual(self.subjects(repo)[0], "随手改了点东西")
 
     def test_spec_compliant_message_is_not_rejected(self):
         """回归: `fix: <中文>` 是 SPEC §10 的标准写法, 不能被校验拦下。"""
@@ -151,10 +152,9 @@ class CommitMessageTest(unittest.TestCase):
             builder.push(message="fix: parse version")
             self.assertEqual(self.subjects(repo)[0], "fix: parse version")
 
-    def test_invalid_message_is_rejected_before_publish(self):
-        """build 的校验必须在发布之前: 否则包已上 PyPI 才在 push 报错, 留下
-        「线上有这个版本、仓库里没有对应提交」的半截状态。"""
-        with self.repo() as (builder, _repo):
+    def test_invalid_message_does_not_abort_build(self):
+        """信息不合约定不该拦下发版: 组织约定而已, 用它卡住整条发版路径代价太大。"""
+        with self.repo() as (builder, repo):
             with (
                 patch.object(BaseBuild, "pull"),
                 patch.object(BaseBuild, "upgrade"),
@@ -164,9 +164,9 @@ class CommitMessageTest(unittest.TestCase):
                 patch.object(BaseBuild, "_cmd_install", return_value=[]),
                 patch.object(BaseBuild, "_cmd_publish", return_value=["echo PUBLISHED"]) as publish,
             ):
-                with self.assertRaisesRegex(ValueError, "提交信息必须是"):
-                    builder.build(message="随手写的信息")
-            publish.assert_not_called()
+                builder.build(message="随手写的信息")
+            publish.assert_called_once()
+            self.assertEqual(self.subjects(repo)[0], "随手写的信息")
 
     def test_empty_batch_does_not_abort_push(self):
         """aicommits 会提交全部暂存内容, 后续批次可能无内容可提交, 不该让 push 失败。"""

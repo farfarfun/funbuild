@@ -420,11 +420,33 @@ class AicommitsProbeTest(unittest.TestCase):
         run.assert_not_called()
 
     def test_available_cli_is_invoked(self):
+        # 依次是: 查暂存(有) / aicommits 输出 / 再查暂存(已提交) / 读回提交信息
         with patch("funbuild.core.util.shutil.which", return_value="/usr/bin/aicommits"):
-            with patch("funbuild.core.util.run_shell", side_effect=["1", "0", "feat: 自动生成信息"]):
+            with patch(
+                "funbuild.core.util.run_shell", side_effect=["1", "feat: 自动生成信息", "0", "feat: 自动生成信息"]
+            ) as run_shell:
                 with patch("funbuild.core.util.run_checked") as run:
-                    util.aicommits_commit()
-        run.assert_called_once_with(["aicommits --yes"], cwd=None)
+                    self.assertTrue(util.aicommits_commit())
+        self.assertIn("aicommits --yes", [c.args[0] for c in run_shell.call_args_list])
+        run.assert_not_called()
+
+    def test_generated_message_is_committed_when_aicommits_only_printed(self):
+        """aicommits 4.x 的 `--yes` 只在 TTY 下才真的提交; 经 shell 调用时它把信息
+        打到 stdout 就退出 (退出码 0, 暂存原地不动)。funbuild 必须接住这条信息自己
+        提交 —— 否则标题全成了兜底的「更新项目文件」。"""
+        with patch("funbuild.core.util.shutil.which", return_value="/usr/bin/aicommits"):
+            with patch("funbuild.core.util.run_shell", side_effect=["1", "feat: 自动生成信息\n", "1"]):
+                with patch("funbuild.core.util.run_checked") as run:
+                    self.assertTrue(util.aicommits_commit())
+        run.assert_called_once_with(["git commit -m 'feat: 自动生成信息'"], cwd=None)
+
+    def test_unconventional_generated_message_is_still_used(self):
+        """不合约定也照原样提交, 不退回兜底信息。"""
+        with patch("funbuild.core.util.shutil.which", return_value="/usr/bin/aicommits"):
+            with patch("funbuild.core.util.run_shell", side_effect=["1", "放开提交信息校验\n", "1"]):
+                with patch("funbuild.core.util.run_checked") as run:
+                    self.assertTrue(util.aicommits_commit())
+        run.assert_called_once_with(["git commit -m '放开提交信息校验'"], cwd=None)
 
 
 class SanitizeCommitMessageTest(unittest.TestCase):
@@ -485,29 +507,21 @@ class RepairGeneratedMessageTest(unittest.TestCase):
         """描述不限语种: aicommits 多数时候生成英文, 不该一律被换成回退信息。"""
         self.assertEqual(self.repair("fix: generated message"), [])
 
-    def test_chinese_type_word_is_not_a_valid_type(self):
-        """回归: 类型必须是 SPEC 列的 ASCII 词, 中文词 (如 \"修复:\") 不合规。"""
-        amends = self.repair("修复: 这不是合规的类型")
-        self.assertEqual(amends, [call(["git commit --amend -m 'chore: 修复: 这不是合规的类型'"], cwd="/repo")])
+    def test_unconventional_message_is_not_rewritten(self):
+        """只清污染, 不碰格式。
 
-    def test_missing_type_prefix_is_prepended_not_discarded(self):
-        """aicommits 的 plain 模式只输出纯描述, 整条换成回退信息等于把描述丢掉。
-
-        funbuild 自己 1.6.84 到 1.6.90 的提交标题全是「更新项目文件」就是这么来的。
+        funbuild 自己 1.6.84 到 1.6.92 的提交标题全是「更新项目文件」就是这么来的:
+        aicommits 的 plain 模式只输出纯描述, 一判不合约定就整条换成回退信息, AI 写好
+        的描述全丢了。类型表外的 perf/style/ci、中文类型词、纯描述, 现在一律原样保留。
         """
-        amends = self.repair("提交信息校验不再要求描述含中文")
-        self.assertEqual(amends, [call(["git commit --amend -m 'chore: 提交信息校验不再要求描述含中文'"], cwd="/repo")])
-
-    def test_out_of_table_type_is_replaced_not_stacked(self):
-        """conventional 还有 perf/style/ci 等类型, 不能叠成 `chore: perf: ...`。"""
-        amends = self.repair("perf: 加快依赖解析")
-        self.assertEqual(amends, [call(["git commit --amend -m 'chore: 加快依赖解析'"], cwd="/repo")])
-
-    def test_body_survives_the_prefix_repair(self):
-        amends = self.repair("放开提交信息校验\n\n正文照旧保留")
-        self.assertEqual(
-            amends, [call(["git commit --amend -m 'chore: 放开提交信息校验\n\n正文照旧保留'"], cwd="/repo")]
-        )
+        for generated in (
+            "修复: 这不是合规的类型",
+            "提交信息校验不再要求描述含中文",
+            "perf: 加快依赖解析",
+            "放开提交信息校验\n\n正文照旧保留",
+        ):
+            with self.subTest(generated=generated):
+                self.assertEqual(self.repair(generated), [])
 
 
 class IsValidCommitMessageTest(unittest.TestCase):
@@ -593,14 +607,15 @@ class ReleaseAliasTest(unittest.TestCase):
         builder = self.invoke(["build", "chore: 发布一下", "--version", "2.0.0"])
         builder.build.assert_called_once_with(message="chore: 发布一下", version="2.0.0")
 
-    def test_invalid_message_exits_without_touching_builder(self):
-        """CLI 要给一句人话并以非 0 退出, 而不是甩一脸 ValueError traceback;
-        更不能先跑完 upgrade/build/publish 再在 push 那步失败。"""
-        for argv in (["build", "随手写的信息"], ["release", "随手写的信息"], ["push", "-m", "随手写的信息"]):
+    def test_invalid_message_is_passed_through(self):
+        """不合约定只提醒一句就继续: 曾经是非 0 退出, 于是正常的信息一旦判错就既发
+        不了版、也留不下描述。信息必须原样透传给 builder。"""
+        for argv, command in ((["build", "随手写的信息"], "build"), (["release", "随手写的信息"], "build")):
             with self.subTest(argv=argv):
                 builder = self.invoke(argv)
-                builder.build.assert_not_called()
-                builder.push.assert_not_called()
+                getattr(builder, command).assert_called_once_with(message="随手写的信息", version=None)
+        builder = self.invoke(["push", "-m", "随手写的信息"])
+        builder.push.assert_called_once_with("随手写的信息", batch_size=20)
 
     def test_release_matches_build(self):
         self.assertEqual(

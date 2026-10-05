@@ -54,18 +54,18 @@ def is_org_repo(repo_path: str, org: str = "farfarfun") -> bool:
     return f"/{org}/" in url or f":{org}/" in url
 
 
-def ensure_valid_commit_message(message: str | None) -> None:
-    """提交信息不合规就立刻抛错; message 为 None (交给 aicommits) 时放行。
+def warn_invalid_commit_message(message: str | None) -> None:
+    """提交信息不合约定时告警一句, 不中止流程、不改写信息。
+
+    `<类型>: <描述>` 只是约定, 拿它卡住发版路径的代价远大于一条不规范的标题。
 
     参数:
-        message: 待校验的提交信息, None 表示未显式指定。
+        message: 待检查的提交信息, None 表示未显式指定 (交给 aicommits)。
     返回:
         无。
-    异常:
-        ValueError: message 不符合 `<类型>: <中文描述>` 规范时抛出。
     """
     if message is not None and not is_valid_commit_message(message):
-        raise ValueError(f"{COMMIT_MESSAGE_HINT}; 收到 {message!r}")
+        logger.warning(f"{COMMIT_MESSAGE_HINT}; 收到 {message!r}, 按原样提交")
 
 
 class BaseBuild:
@@ -213,20 +213,19 @@ class BaseBuild:
         —— aicommits 会无视外部信息自己生成一条, 因此指定了信息就不能再走它。
 
         参数:
-            message: `<类型>: <中文描述>` 格式的提交信息 (类型取 feat/fix/docs/
-                refactor/test/chore)。为 None 时优先尝试 aicommits 自动生成,
-                失败则使用合规的回退信息。
+            message: 提交信息, 原样使用。不符合 `<类型>: <描述>` 约定时只告警。
+                为 None 时优先尝试 aicommits 自动生成, 失败才用回退信息。
             batch_size: 每次提交最多包含的文件数, 用于避免单次提交内容过大。
             *args, **kwargs: 由 CLI 透传, 当前实现未使用, 仅为接口一致性保留。
         返回:
             无。
         异常:
-            ValueError: batch_size 小于 1, 或 message 不符合提交信息规范时抛出。
+            ValueError: batch_size 小于 1 时抛出。
         """
         logger.info(f"{self.name} push")
         if batch_size < 1:
             raise ValueError("batch_size must be at least 1")
-        ensure_valid_commit_message(message)
+        warn_invalid_commit_message(message)
 
         changes = self._changed_files()
         if changes:
@@ -277,7 +276,7 @@ class BaseBuild:
         """
         # 先校验再下潜: 否则非法信息会在每个 submodule 的子进程里各失败一次,
         # 还可能已经有前面几个 submodule 推送成功, 留下半截状态。
-        ensure_valid_commit_message(message)
+        warn_invalid_commit_message(message)
         for submodule_path in self._submodule_paths():
             logger.info(f"push submodule: {submodule_path}")
             cmd = ["funbuild", "push"]
@@ -314,7 +313,7 @@ class BaseBuild:
         """
         # 必须在 publish 之前校验: push 是发布之后才跑的, 等到那时候才报错, 包已经
         # 上了 PyPI, 却留下「线上有这个版本、仓库里没有对应提交和 tag」的半截状态。
-        ensure_valid_commit_message(message)
+        warn_invalid_commit_message(message)
         logger.info(f"{self.name} build")
         self.pull()
         self.upgrade(version=version)

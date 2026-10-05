@@ -8,7 +8,7 @@ import shlex
 import yaml
 from funshell import run_shell
 
-from .base import BaseBuild, ensure_valid_commit_message
+from .base import BaseBuild, warn_invalid_commit_message
 from .util import deep_get, dump_toml, load_toml, logger, normalize_package_name, parse_version, run_checked
 
 # PEP 508 依赖声明串的包名部分, 如 "funlesson-core>=1.0.0" -> "funlesson-core",
@@ -272,7 +272,7 @@ class SubmoduleWorkspaceBuild(BaseBuild):
             ValueError: message 不符合提交信息规范时抛出。
         """
         # 与 BaseBuild.build 同理: 非法信息必须在任何 app 发布之前拦住。
-        ensure_valid_commit_message(message)
+        warn_invalid_commit_message(message)
         logger.info(f"{self.name} build (submodule workspace)")
         self.pull()
         self.upgrade(version=version)

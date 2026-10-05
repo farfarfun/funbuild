@@ -33,9 +33,8 @@ class BuilderDetectionError(RuntimeError):
 # SPEC.md §10: 格式 `<类型>: <做了什么>`, 类型取下面这几个 ASCII 词。
 COMMIT_MESSAGE_TYPES = ("feat", "fix", "docs", "refactor", "test", "chore")
 DEFAULT_COMMIT_MESSAGE = "chore: 更新项目文件"
-# 允许 conventional commits 的可选 scope (如 `fix(core): ...`)。描述不限语种:
-# 曾要求必须含中文, 于是 aicommits 生成的英文信息一律被判非法, 每次发版都退回
-# DEFAULT_COMMIT_MESSAGE, 历史里只剩一串「更新项目文件」。
+# 允许 conventional commits 的可选 scope (如 `fix(core): ...`), 描述不限语种。
+# 不符合只告警 —— 这是约定, 不是门槛, 判错的代价是丢掉写好的描述。
 _COMMIT_MESSAGE_RE = re.compile(rf"^(?:{'|'.join(COMMIT_MESSAGE_TYPES)})(?:\([^()\s]+\))?: \S.*$")
 COMMIT_MESSAGE_HINT = (
     f"提交信息必须是 `<类型>: <描述>` 格式, 类型取 {'/'.join(COMMIT_MESSAGE_TYPES)}, 例如 {DEFAULT_COMMIT_MESSAGE!r}"
@@ -211,48 +210,34 @@ def _last_commit_message(cwd=None) -> str:
     return run_shell("git log -1 --format=%B", printf=False, cwd=cwd)
 
 
-# 标题已有的 `<类型>:` 前缀, 类型可能不在 COMMIT_MESSAGE_TYPES 里 (conventional
-# 还有 perf / style / ci 等)
-_SUBJECT_TYPE_RE = re.compile(r"^([A-Za-z]+)(?:\([^()\s]+\))?: (?=\S)")
-
-
-def coerce_commit_message(message: str) -> str | None:
-    """把信息补成合规格式; 没有任何可用描述时返回 None。
-
-    aicommits 的 plain 模式 (`~/.aicommits` 里 `type=plain`, 也是它的默认值) 只输出
-    纯描述、不带类型前缀, 于是每一条都判非法 —— 整条换成回退信息等于把描述丢掉,
-    而缺的只是前缀。
-    """
-    if not message.strip():
-        return None
-    if is_valid_commit_message(message):
-        return message
-    subject, separator, body = message.partition("\n")
-    # 表外类型整个换掉, 不叠成 `chore: perf: ...`
-    match = _SUBJECT_TYPE_RE.match(subject)
-    description = (subject[match.end() :] if match else subject).strip()
-    if not description:
-        return None
-    # 不按描述猜类型: 让模型按 diff 判断才准, `aicommits config set type=conventional`
-    return f"chore: {description}{separator}{body}"
-
-
 def _repair_generated_message(cwd, fallback: str) -> None:
-    """校验 aicommits 刚生成的信息，不合规时就地 amend 修正。"""
+    """只清掉 aicommits 信息里的思维链/围栏污染; 格式不合约定只告警, 不改写。
+
+    污染 (整条正文只有 `<think>`) 是确定无疑的, 格式判断会错, 错一次就丢掉描述。
+    """
     original = _last_commit_message(cwd)
     cleaned = sanitize_commit_message(original)
-    if cleaned == original.strip() and is_valid_commit_message(cleaned):
+    if cleaned == original.strip():
+        _warn_if_unconventional(cleaned)
         return
-    replacement = coerce_commit_message(cleaned) or fallback
-    logger.warning(f"aicommits 生成的信息不符合提交规范, 已修正为: {replacement!r}")
+    replacement = cleaned or fallback
+    logger.warning(f"aicommits 生成的信息含思维链/围栏标记, 已清理为: {replacement!r}")
     run_checked([shlex.join(["git", "commit", "--amend", "-m", replacement])], cwd=cwd)
 
 
-def aicommits_commit(cwd=None, fallback: str = DEFAULT_COMMIT_MESSAGE) -> bool:
-    """让 aicommits 依据暂存内容自行生成信息并提交, 成功返回 True。
+def _warn_if_unconventional(message: str) -> None:
+    """信息不符合 `<类型>: <描述>` 约定时告警一句, 不做任何改写。"""
+    if message and not is_valid_commit_message(message):
+        logger.warning(f"提交信息不符合约定 ({COMMIT_MESSAGE_HINT}), 按原样保留: {message!r}")
 
-    只在调用方没有指定 commit 信息时才该走这条路: aicommits 完全无视外部传入的
-    信息, 用它提交等于丢弃用户显式给出的信息。
+
+def aicommits_commit(cwd=None, fallback: str = DEFAULT_COMMIT_MESSAGE) -> bool:
+    """让 aicommits 依据暂存内容生成信息并提交, 成功返回 True。
+
+    只在调用方没有指定 commit 信息时才该走这条路: aicommits 无视外部传入的信息。
+
+    它的 `--yes` 只在 TTY 下才真提交; 经 shell 调用时只把信息打到 stdout 就退出
+    (退出码仍是 0, 暂存原地不动), 所以这里捕获输出, 没提交就拿这条信息自己提交。
     """
     if not has_staged_changes(cwd):
         logger.warning("No staged changes")
@@ -261,13 +246,22 @@ def aicommits_commit(cwd=None, fallback: str = DEFAULT_COMMIT_MESSAGE) -> bool:
         return False
 
     try:
-        run_checked(["aicommits --yes"], cwd=cwd)
+        output = run_shell("aicommits --yes", printf=False, cwd=cwd, timeout=180)
     except Exception as e:
         logger.error(f"aicommits commit failed: {e}")
         return False
-    if has_staged_changes(cwd):
+
+    if not has_staged_changes(cwd):
+        _repair_generated_message(cwd, fallback)
+        return True
+
+    message = sanitize_commit_message(output)
+    if not message:
+        logger.warning(f"aicommits 没有提交, 输出里也取不到可用信息: {output.strip()!r}")
         return False
-    _repair_generated_message(cwd, fallback)
+    logger.info(f"aicommits 只生成未提交 (非 TTY), 改由 funbuild 提交: {message!r}")
+    _warn_if_unconventional(message)
+    run_checked([shlex.join(["git", "commit", "-m", message])], cwd=cwd)
     return True
 
 

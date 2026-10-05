@@ -1,10 +1,26 @@
 # Changelog
 
+## [1.6.93]
+
+### 修复
+
+- aicommits 生成的提交信息此前从未被用上，funbuild 1.6.84 起每一条发版标题都是兜底的 `chore: 更新项目文件`。根因是 aicommits 4.x 的 `--yes` **只在 TTY 下才真的提交**：经 shell 调用时（funbuild 这条路径）它把生成的信息打到 stdout 就退出，退出码仍是 0，暂存内容原地不动。funbuild 用 `run_checked` 调它、丢掉 stdout，于是走进「还有暂存内容」的分支静默返回 False，`push` 接着用兜底信息提交 —— AI 写好的描述只在终端上闪了一下。现在捕获它的 stdout，发现它没提交就拿这条信息自己提交。
+- 不传 `message` 时「正文只有 `<think>`」这类思维链/围栏污染照旧清理，但清理之后**不再按格式改写**。
+
+### 变更
+
+- **提交信息校验全部降为告警。** `<类型>: <描述>` 只是组织约定，此前三处（CLI 非 0 退出、`push`/`build` 抛 `ValueError`、aicommits 信息改写）都拿它当硬门槛，而判错一次的代价是把写好的描述永久换成 `chore: 更新项目文件` 或者直接发不了版 —— 这个代价明显大于留下一条不规范的标题。现在信息一律原样提交，不合约定只记一行 warning。
+- 撤销 1.6.91 的「缺前缀补 `chore: `、表外类型换成 `chore`」：那仍是在改写信息，猜错就同样丢描述。要让类型准确，把 aicommits 设成 conventional 模式（`aicommits config set type=conventional`），由模型按 diff 判断。
+
+### 废弃
+
+- `ensure_valid_commit_message` 更名为 `warn_invalid_commit_message`（不再抛异常），`coerce_commit_message` 已删除。
+
 ## [1.6.91]
 
 ### 修复
 
-- aicommits 生成的信息只因缺 `<类型>:` 前缀就被整条丢弃，换成回退信息 `chore: 更新项目文件`。aicommits 的 plain 模式（`~/.aicommits` 里 `type=plain`，也是它的默认值）只输出纯描述、从不带前缀，于是**每一条**都被判非法 —— funbuild 自己 1.6.84 到 1.6.91 的提交标题全是这一句，而那几次 aicommits 实际生成的是「修复 latest-packages 查询逻辑：使用 `--refresh-package` 绕过 uv 缓存…」这类可用信息。现在缺前缀时补上 `chore: ` 并保留原描述，表外类型（conventional 的 `perf` / `style` / `ci` 等）整个换成 `chore` 而不叠成 `chore: perf: ...`，只有描述为空时才回退。要让类型也准确，把 aicommits 设成 conventional 模式（`aicommits config set type=conventional`），由模型按 diff 判断 —— funbuild 不按描述猜类型。
+- aicommits 生成的信息只因缺 `<类型>:` 前缀就被整条丢弃，换成回退信息 `chore: 更新项目文件`。aicommits 的 plain 模式（`~/.aicommits` 里 `type=plain`，也是它的默认值）只输出纯描述、从不带前缀，于是**每一条**都被判非法 —— funbuild 自己 1.6.84 到 1.6.91 的提交标题全是这一句，而那几次 aicommits 实际生成的是「修复 latest-packages 查询逻辑：使用 `--refresh-package` 绕过 uv 缓存…」这类可用信息。当时的修法是缺前缀时补上 `chore: ` 并保留原描述 —— **已在 1.6.93 撤销**：标题全是「更新项目文件」的真正根因是 aicommits 在非 TTY 下根本没提交，补前缀治不到，而改写信息本身又会丢描述。
 
 ### 废弃
 

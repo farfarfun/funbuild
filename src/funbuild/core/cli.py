@@ -28,10 +28,9 @@ def funbuild() -> None:
         return cached[0]
 
     def check_message(message: str | None) -> None:
-        """提交信息不合规时给一句人话再退出, 而不是甩一脸 ValueError traceback。"""
+        """提交信息不合约定时提醒一句就继续, 不拦下整条发版路径。"""
         if message is not None and not is_valid_commit_message(message):
-            typer.secho(f"错误: {COMMIT_MESSAGE_HINT}; 收到 {message!r}", fg=typer.colors.RED, err=True)
-            raise typer.Exit(code=1)
+            typer.secho(f"提醒: {COMMIT_MESSAGE_HINT}; 收到 {message!r}, 按原样提交", fg=typer.colors.YELLOW, err=True)
 
     @cli.command()
     def upgrade(
@@ -96,8 +95,7 @@ def funbuild() -> None:
         ] = None,
     ):
         """构建发布"""
-        # 先校验: 不合规的信息要在 upgrade/构建/发布之前拦住, 否则会先把包发到
-        # PyPI 再在 push 那一步抛异常, 留下「已发布但没提交」的半截状态。
+        # 提醒放在最前面, 这样不规范的信息在终端上看得见, 而不是被发布日志冲掉
         check_message(message)
         builder().build(message=message, version=version)
 
