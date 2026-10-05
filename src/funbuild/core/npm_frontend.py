@@ -130,6 +130,15 @@ class NpmFrontendBuild(BaseBuild):
         self._pm = self._detect_package_manager_for_dir(pkg_dir, self._funbuild_cfg)
 
     def check_type(self) -> bool:
+        """仓库内存在可构建的 `package.json` 时认领本仓库。
+
+        命中时顺带记录全部 `package.json` 路径、包管理器与版本号。版本以根
+        `pyproject.toml` 的 `[project].version` 为准 (整仓主源), 没有根
+        pyproject 时才退回首个 `package.json` 自带的 `version`。
+
+        返回:
+            命中前端项目返回 True, 否则 False。
+        """
         self.package_json_paths = self._collect_package_json_paths()
         if not self.package_json_paths:
             return False

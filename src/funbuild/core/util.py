@@ -21,6 +21,14 @@ class NotAGitRepositoryError(RuntimeError):
     """当前目录不在 git 仓库中。"""
 
 
+class ManifestParseError(RuntimeError):
+    """版本清单文件 (pyproject.toml / package.json / pubspec.yaml 等) 无法读取或解析。"""
+
+
+class BuilderDetectionError(RuntimeError):
+    """构建类型探测失败: 清单文件损坏导致无法判定该用哪个构建策略。"""
+
+
 # SPEC.md §10: 格式 `<类型>: <做了什么>`, 类型取下面这几个 ASCII 词, 描述用中文。
 # 类型**不是**中文词: 曾把规则误读成「连类型也得是中文」, 于是
 # `funbuild push -m "fix: 修复版本解析"` —— 完全合规的信息 —— 被判非法直接抛
@@ -57,9 +65,23 @@ def load_toml(path: str) -> Any:
     必须用 tomlkit 而非 toml: 后者的 load/dump 往返会丢掉全部注释、把多行数组
     压成一行、并按字典顺序重排 table。upgrade 每次只改一个版本号, 却会因此重写
     整个 pyproject.toml, 既污染 diff 也会静默删除用户写的注释。
+
+    参数:
+        path: TOML 文件路径。
+    返回:
+        tomlkit 文档对象。
+    异常:
+        ManifestParseError: 文件读不出来或 TOML 语法有误。原始异常信息里不带
+            文件路径, 多清单仓库 (extbuild/、exts/) 下无从定位是哪一个文件,
+            这里统一补上。
     """
-    with open(path, encoding="utf-8") as f:
-        return tomlkit.load(f)
+    try:
+        with open(path, encoding="utf-8") as f:
+            return tomlkit.load(f)
+    except ManifestParseError:
+        raise
+    except Exception as e:
+        raise ManifestParseError(f"无法解析 TOML 文件 {path}: {e}") from e
 
 
 def dump_toml(document: Any, path: str) -> None:
@@ -181,6 +203,18 @@ def aicommits_commit(cwd=None, fallback: str = DEFAULT_COMMIT_MESSAGE) -> bool:
 
 
 def deep_get(data: dict[str, Any], *args: str | int) -> Any:
+    """按顺序逐层下钻取嵌套结构里的值, 任一层取不到就返回 None。
+
+    用于读 `pyproject.toml` / `package.json` 这类层级不保证存在的配置,
+    免去每层都写 `isinstance` + `in` 判断。
+
+    参数:
+        data: 起始容器, 通常是 TOML/JSON 解析结果; 为空 (None / 空 dict) 时直接返回 None。
+        *args: 逐层的键 (dict 的 key) 或下标 (list 的 index), 按给定顺序依次下钻。
+    返回:
+        最后一层取到的值; 中途任一层缺失、类型不支持下标或下标越界时返回 None。
+        注意取到的值本身就是 None 时同样返回 None, 无法与「缺失」区分。
+    """
     if not data:
         return None
     for arg in args:

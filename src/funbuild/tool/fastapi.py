@@ -1,10 +1,13 @@
 """FastAPI 路由注册辅助工具。
 
-提供 `api_route` 装饰器: 先把被装饰的类方法登记到模块级注册表, 再由
+提供 `ApiRoute` 装饰器: 先把被装饰的类方法登记到模块级注册表, 再由
 `add_api_routes` 在拿到具体 router 实例时统一挂载, 用于类方法定义路由但
 实际注册要等实例存在之后再进行的场景。
+
+旧名 `api_route` 仍可用, 但调用时会发出 `DeprecationWarning`, 计划在 2.0 移除。
 """
 
+import warnings
 from collections.abc import Callable
 from functools import wraps
 from typing import Any
@@ -68,4 +71,21 @@ def add_api_routes(router: Any) -> None:
             router.add_api_route(path=reg["path"], endpoint=getattr(router, reg["method"]), **reg["kwargs"])
 
 
-api_route = ApiRoute
+def api_route(path: str, **kwargs: Any) -> ApiRoute:
+    """`ApiRoute` 的兼容入口, 已弃用。
+
+    1.6.80 把路由装饰器统一改名为 `ApiRoute`, 旧名按 SPEC §15.1 保留并在调用时
+    发出 `DeprecationWarning`, 计划于 2.0 移除。
+
+    参数:
+        path: 路由路径, 如 "/users"。
+        **kwargs: 透传给 `router.add_api_route` 的其余关键字参数。
+    返回:
+        等价的 `ApiRoute` 实例, 行为与直接 `ApiRoute(path, **kwargs)` 完全一致。
+    """
+    warnings.warn(
+        "funbuild.tool.fastapi.api_route 已弃用, 请改用 ApiRoute, 将于 2.0 移除",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return ApiRoute(path, **kwargs)

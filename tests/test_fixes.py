@@ -8,6 +8,7 @@ import os
 import sys
 import tempfile
 import unittest
+import warnings
 from pathlib import Path
 from unittest.mock import MagicMock, call, patch
 
@@ -19,7 +20,14 @@ from funbuild.core.cli import funbuild as cli_entry
 from funbuild.core.empty_build import EmptyBuild
 from funbuild.core.poetry_build import PoetryBuild
 from funbuild.core.registry import get_build
-from funbuild.core.util import NotAGitRepositoryError, ShellCommandError, parse_version, run_checked
+from funbuild.core.util import (
+    BuilderDetectionError,
+    ManifestParseError,
+    NotAGitRepositoryError,
+    ShellCommandError,
+    parse_version,
+    run_checked,
+)
 from funbuild.core.uv_build import UVBuild
 from funbuild.core.version_file_build import VersionFileBuild
 
@@ -207,14 +215,89 @@ class RegistryTest(unittest.TestCase):
                 git_repo_root.cache_clear()
             self.assertIsNotNone(builder)
 
+    @contextlib.contextmanager
+    def repo(self, files):
+        with tempfile.TemporaryDirectory() as temp:
+            for name, content in files.items():
+                path = Path(temp) / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(content, encoding="utf-8")
+            cwd = os.getcwd()
+            os.chdir(temp)
+            git_repo_root.cache_clear()
+            try:
+                with patch("funbuild.core.base.run_shell", return_value=temp):
+                    yield Path(temp)
+            finally:
+                os.chdir(cwd)
+                git_repo_root.cache_clear()
+
     def test_broken_builder_is_skipped_not_fatal(self):
-        git_repo_root.cache_clear()
-        self.addCleanup(git_repo_root.cache_clear)
-        # get_build 会 chdir 到仓库根, 这里没走 repo() 助手, 自己负责还原
-        self.addCleanup(os.chdir, os.getcwd())
-        with patch.object(PoetryBuild, "check_type", side_effect=RuntimeError("boom")):
-            with patch("funbuild.core.base.run_shell", return_value="/tmp"):
-                self.assertIsNotNone(get_build())
+        """某个 builder 探测出错不该连累后面本能命中的 builder。"""
+        with self.repo({"pyproject.toml": '[project]\nname = "x"\nversion = "1.0.0"\n'}):
+            with patch.object(PoetryBuild, "check_type", side_effect=RuntimeError("boom")):
+                builder = get_build()
+        self.assertIsInstance(builder, UVBuild)
+        self.assertEqual(builder.version, "1.0.0")
+
+    def test_no_manifest_at_all_falls_back_to_empty_build(self):
+        """真的没有任何清单 (纯文档仓库) 时, 兜底到 EmptyBuild 仍是正确行为。"""
+        with self.repo({"README.md": "# docs\n"}):
+            builder = get_build()
+        self.assertIsInstance(builder, EmptyBuild)
+
+    def test_corrupt_pyproject_aborts_instead_of_silent_empty_build(self):
+        """pyproject.toml 写坏时必须报错中止。
+
+        原先探测异常只记一条 warning, 最终落到 EmptyBuild —— `funbuild build`
+        什么都不做却以退出码 0 结束, 看起来像发布成功了。
+        """
+        with self.repo({"pyproject.toml": '[project]\nname = "x\nversion = "1.0.0"\n'}):
+            with self.assertRaises(BuilderDetectionError) as ctx:
+                get_build()
+        self.assertIn("UVBuild", str(ctx.exception))
+        # 领域异常要带上出错的文件路径, 否则多清单仓库无从定位
+        self.assertIn("pyproject.toml", str(ctx.exception))
+
+
+class LoadTomlErrorContextTest(unittest.TestCase):
+    """tomlkit 的解析异常不带文件名, extbuild/ 多清单仓库下无从定位。"""
+
+    def test_parse_error_carries_path(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "pyproject.toml"
+            path.write_text('[project]\nname = "x\n', encoding="utf-8")
+            with self.assertRaises(ManifestParseError) as ctx:
+                util.load_toml(str(path))
+        self.assertIn(str(path), str(ctx.exception))
+
+    def test_missing_file_carries_path(self):
+        with self.assertRaises(ManifestParseError) as ctx:
+            util.load_toml("/nonexistent/dir/pyproject.toml")
+        self.assertIn("/nonexistent/dir/pyproject.toml", str(ctx.exception))
+
+
+class ApiRouteDeprecationTest(unittest.TestCase):
+    """SPEC §15.1: 改名后旧接口要保留并发 DeprecationWarning。"""
+
+    def test_old_name_warns_and_still_works(self):
+        from funbuild.tool.fastapi import ApiRoute, api_route
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            decorator = api_route("/ping", methods=["GET"])
+        self.assertIsInstance(decorator, ApiRoute)
+        self.assertEqual(len(caught), 1)
+        self.assertIs(caught[0].category, DeprecationWarning)
+        self.assertIn("ApiRoute", str(caught[0].message))
+
+    def test_new_name_does_not_warn(self):
+        from funbuild.tool.fastapi import ApiRoute
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            ApiRoute("/ping")
+        self.assertEqual([w for w in caught if w.category is DeprecationWarning], [])
 
 
 class VersionFileBuildTest(unittest.TestCase):

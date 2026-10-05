@@ -40,6 +40,15 @@ class FlutterBuild(BaseBuild):
         self._pubspec_name: str = self.name
 
     def check_type(self) -> bool:
+        """根目录存在显式依赖 Flutter SDK 的 `pubspec.yaml` 时认领本仓库。
+
+        命中时顺带把 `pubspec.yaml` 里的包名与版本 (含 `+buildNumber`) 读进实例。
+        纯 Dart 包 (没有 `dependencies.flutter.sdk: flutter`) 不属于本构建类型。
+
+        返回:
+            命中 Flutter 项目返回 True, 否则 False; `pubspec.yaml` 不存在或
+            无法解析时记录告警并返回 False, 交由后续构建类型继续探测。
+        """
         if not os.path.isfile(self.PUBSPEC_PATH):
             return False
         try:

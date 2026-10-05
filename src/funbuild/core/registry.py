@@ -10,7 +10,7 @@ from .npm_frontend import NpmFrontendBuild
 from .poetry_build import PoetryBuild
 from .pypi_build import PypiBuild
 from .submodule_workspace_build import SubmoduleWorkspaceBuild
-from .util import logger
+from .util import BuilderDetectionError, logger
 from .uv_build import UVBuild
 from .version_file_build import VersionFileBuild
 
@@ -38,8 +38,8 @@ def get_build() -> (
     # 不会误伤任何既有项目, 但一旦命中就该优先接管 (repo 自身没有可发布产物)。
     # FlutterBuild 排在 NpmFrontendBuild 之前 —— Flutter Web 项目常常也带一个
     # 仅供前端工具链使用的 package.json, 若 npm 先匹配会把它错认成纯前端项目。
-    # VersionFileBuild 作为最后的真实回退, 只在所有清单类构建都不匹配时才接管;
-    # EmptyBuild 永远匹配, 必须垫底。
+    # VersionFileBuild 作为最后的真实回退, 只在所有清单类构建都不匹配时才接管。
+    # EmptyBuild 永远匹配, 不参与循环, 只在循环走完且没有任何探测异常时才兜底。
     builders = [
         SubmoduleWorkspaceBuild,
         UvNpmHybridBuild,
@@ -49,16 +49,29 @@ def get_build() -> (
         FlutterBuild,
         NpmFrontendBuild,
         VersionFileBuild,
-        EmptyBuild,
     ]
+    failures: list[str] = []
     for builder in builders:
         # 单个 builder 探测出错不应中断整条链, 否则会因某个不相关的清单文件异常
-        # 而让本可正确匹配的后续 builder 没有机会被尝试。
+        # 而让本可正确匹配的后续 builder 没有机会被尝试。但异常要留痕: 全部落空
+        # 时据此决定是兜底还是报错, 不能一声不吭地退化成空构建。
         try:
             build = builder()
             if build.check_type():
                 return build
         except Exception as e:
             logger.warning(f"{builder.__name__} check_type failed, skipped: {e}")
+            failures.append(f"{builder.__name__}: {e}")
 
-    raise RuntimeError("未找到合适的构建类")
+    # 没有任何构建类型认领, 而探测过程中确实有清单解析失败 —— 这是「pyproject.toml
+    # 写坏了」而不是「这个仓库本来就没有可发布产物」。此时退化成 EmptyBuild 会让
+    # funbuild build 什么都不做却以退出码 0 结束, 看起来像发布成功了。必须报错。
+    if failures:
+        raise BuilderDetectionError(
+            "未识别到可用的构建类型, 且探测过程中有清单文件解析失败; 拒绝退化为空构建。\n  - " + "\n  - ".join(failures)
+        )
+
+    fallback = EmptyBuild()
+    # 调一次保留 EmptyBuild 自己那条「回退到空构建」的告警日志
+    fallback.check_type()
+    return fallback

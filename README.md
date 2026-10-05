@@ -76,7 +76,7 @@ funbuild:
 
 - Python 3.10+
 - Git（版本管理与标签推送）
-- 可选：`aicommits`（`npm install -g aicommits`）。装了则 `push` 用它生成提交信息，没装则回退到 `message` 参数的值，不影响流程。
+- 可选：`aicommits`（`npm install -g aicommits`）。只有在**不传** `message` 时才会调用它生成提交信息；没装或调用失败则回退到默认信息 `chore: 更新项目文件`。显式传了 `message` 就直接用该值，不走 aicommits。不影响流程。
 - Flutter 项目需要本机装好 `flutter` 命令并加入 `PATH`；`funbuild` 本身只负责拼装 `flutter` 命令并不校验其可用性。
 - Flutter 项目的默认发布步骤需要安装 [`funpub`](https://pypi.org/project/funpub/)（`pip install funpub`），并提前用 `funsecret` 配置好 `funpackage` 仓库的凭据，否则 `funpub upload` 会失败。
 
@@ -104,17 +104,19 @@ pip install .
 
 | 命令 | 参数 | 作用 |
 | --- | --- | --- |
-| `upgrade` | — | 版本自增并写回各清单文件 |
+| `upgrade` | `--version`（默认不传＝自动递增） | 版本自增（或写入指定版本号）并写回各清单文件 |
 | `pull` | — | `git pull` |
-| `push` | `--message`（默认 `add`）<br>`--batch-size`（默认 `20`） | 按文件修改时间从旧到新分批提交，最后统一推送 |
+| `push` | `target`（位置参数，仅接受 `all`）<br>`--message` / `-m`（默认不传）<br>`--batch-size`（默认 `20`） | 按文件修改时间从旧到新分批提交，最后统一推送；传 `all` 时先依次 push 每个 submodule |
 | `install` | — | 构建 + 安装到当前环境 + 清理产物 |
-| `build` | `message`（位置参数，默认 `add`） | 完整发布流水线，见下 |
+| `build` | `message`（位置参数，默认不传）<br>`--version`（默认不传＝自动递增） | 完整发布流水线，见下 |
 | `release` | 同 `build` | `build` 的别名，行为完全一致 |
 | `tag` | — | 打 `v{version}` 标签并推送 |
 | `clean` | — | 重建 Git 索引以应用新的 `.gitignore`（会产生一次提交） |
 | `clean-history` | — | **破坏性**：删除全部标签与提交历史并强推远程 |
 
 > 命令名中的下划线会被 typer 转成连字符，因此是 `clean-history` 而非 `clean_history`。
+
+> `--message` / `message` 不传时为 `None`：此时优先交给 aicommits 生成提交信息，未安装 aicommits 才回退到默认信息 `chore: 更新项目文件`（定义在 `src/funbuild/core/util.py` 的 `DEFAULT_COMMIT_MESSAGE`）。传了值则必须符合 SPEC §10 的 `<类型>: <中文描述>` 格式，否则在任何改动发生之前就以非 0 退出码中止。
 
 ### 版本
 
@@ -132,7 +134,11 @@ funbuild upgrade
 
 版本号会写回根 `pyproject.toml`，并同步到仓内所有带 `version` 字段的 `pyproject.toml`、`package.json` 与 `pubspec.yaml`（含 `extbuild/` `exts/` 子目录）。非三段版本按缺位补 0 处理（`1.0` 视作 `1.0.0`）；`1.0.0rc1` 这类预发布后缀会被丢弃并打印告警。以 `FlutterBuild` 为主构建类型时例外：`pubspec.yaml` 自己的 `+buildNumber` 每次 `upgrade` 单独 `+1`，不受该丢弃规则影响。
 
-CLI 未提供「写入指定版本号」参数，需要固定版本时请直接编辑清单文件。
+需要写入指定版本号（而非自动递增）时，给 `upgrade` 或 `build` 传 `--version`：
+
+```bash
+funbuild upgrade --version 2.0.0
+```
 
 ### Git
 
@@ -145,8 +151,12 @@ funbuild push
 # 自定义每个提交的文件数
 funbuild push --batch-size 50
 
-# 指定提交信息（未安装 aicommits 时生效）；注意这里是选项而非位置参数
-funbuild push --message "fix: typo"
+# 指定提交信息（未安装 aicommits 时生效）；注意这里是选项而非位置参数。
+# 信息必须是 `<类型>: <中文描述>`，英文描述会被校验直接拒绝。
+funbuild push --message "fix: 修复拼写"
+
+# 先依次 push 每个 submodule，再 push 当前仓库
+funbuild push all
 ```
 
 > `push` 会先执行 `git reset` 清空暂存区再按批次重新 `add`，已手工 `git add` 的内容会被一并纳入分批提交。

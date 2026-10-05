@@ -5,7 +5,7 @@ import os
 import re
 from collections.abc import Callable
 
-from .util import dump_toml, load_toml, logger
+from .util import ManifestParseError, dump_toml, load_toml, logger
 
 # 形如 `version: 1.0.0+42`, 可能带引号与行内注释; 只替换 major.minor.patch 部分,
 # 不动 `+42` 这类构建号后缀 —— 那是 FlutterBuild 自己在 upgrade 时才递增的字段,
@@ -63,7 +63,7 @@ def _pyproject_supports_version_sync(path: str) -> bool:
     """
     try:
         cfg = load_toml(path)
-    except (OSError, ValueError, KeyError, TypeError) as e:
+    except (ManifestParseError, OSError, ValueError, KeyError, TypeError) as e:
         # tomlkit 的 ParseError 继承 ValueError
         raise ManifestVersionSyncError(f"版本清单无法解析, 拒绝带着不一致的版本继续发布: {path}: {e}") from e
     proj = cfg.get("project")
@@ -188,7 +188,7 @@ def root_pyproject_project_version() -> str | None:
         return None
     try:
         cfg = load_toml(path)
-    except (OSError, ValueError, KeyError, TypeError) as e:
+    except (ManifestParseError, OSError, ValueError, KeyError, TypeError) as e:
         # 只读探测, 拿不到就让调用方回退到自己已解析的文档; 但不能连日志都不留。
         logger.warning(f"无法从 {path} 读取主版本号, 回退到调用方自己解析的值: {e}")
         return None
