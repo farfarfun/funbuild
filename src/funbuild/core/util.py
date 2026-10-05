@@ -162,6 +162,17 @@ def parse_version(version: str) -> tuple[list[int], str]:
     return numbers, match.group(4) or ""
 
 
+# aicommits 的默认 type=plain 只输出纯描述, 生成的信息必然缺 `<类型>:` 前缀; 而它的
+# conventional 模式又会产出表外的 perf/style/ci。既然信息是 funbuild 让它生成的, 格式
+# 就该由 funbuild 交代清楚 (而不是事后改写或只告警), 类型仍由模型按 diff 判断。
+# 不传 --locale: 描述不限语种, 语种听用户 ~/.aicommits 的。
+_AICOMMITS_PROMPT = (
+    'The subject line must start with exactly one of these types followed by ": " - '
+    f"{', '.join(COMMIT_MESSAGE_TYPES)}. Never use any other type."
+)
+AICOMMITS_COMMAND = shlex.join(["aicommits", "--yes", "--type", "conventional", "--prompt", _AICOMMITS_PROMPT])
+
+
 @lru_cache(maxsize=1)
 def _aicommits_available() -> bool:
     """aicommits 是否可用, 只探测一次 (push 会按批次调用多次)。"""
@@ -238,6 +249,7 @@ def aicommits_commit(cwd=None, fallback: str = DEFAULT_COMMIT_MESSAGE) -> bool:
 
     它的 `--yes` 只在 TTY 下才真提交; 经 shell 调用时只把信息打到 stdout 就退出
     (退出码仍是 0, 暂存原地不动), 所以这里捕获输出, 没提交就拿这条信息自己提交。
+    格式约定随 AICOMMITS_COMMAND 一起传给它, 见那里的说明。
     """
     if not has_staged_changes(cwd):
         logger.warning("No staged changes")
@@ -246,7 +258,7 @@ def aicommits_commit(cwd=None, fallback: str = DEFAULT_COMMIT_MESSAGE) -> bool:
         return False
 
     try:
-        output = run_shell("aicommits --yes", printf=False, cwd=cwd, timeout=180)
+        output = run_shell(AICOMMITS_COMMAND, printf=False, cwd=cwd, timeout=180)
     except Exception as e:
         logger.error(f"aicommits commit failed: {e}")
         return False

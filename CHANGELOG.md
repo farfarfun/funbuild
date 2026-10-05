@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.6.94]
+
+### 修复
+
+- funbuild 自己让 aicommits 生成的提交信息 **100% 不符合 `<类型>: <描述>` 约定**，于是每次发版都带一行 warning。原因是调用时什么格式要求都没传，aicommits 默认 `type=plain`（`~/.aicommits` 的默认值）只输出纯描述、从不带前缀。1.6.93 把校验降为告警是对的（判错的代价是丢描述），但信息既然是 funbuild 让它生成的，格式就该由 funbuild 交代清楚，而不是生成完再告警。现在调用命令固定带上 `--type conventional` 和一句限定类型表的 `--prompt`，类型仍由模型按 diff 判断。
+- 只传 `--type conventional` 不够：实测它会产出 conventional 全集里的 `perf(version): cache parsed version strings`，`perf` 不在 SPEC 的类型表内，照样不合规。加上 `--prompt` 后同一个 diff 稳定回到 `refactor:`（连跑三次一致）。
+- 不传 `--locale`：描述不限语种，语种仍听用户 `~/.aicommits` 的配置。
+- 用户不再需要自己 `aicommits config set type=conventional` —— 命令行参数优先于配置文件，funbuild 不依赖、也不修改用户的全局配置。
+
 ## [1.6.93]
 
 ### 修复

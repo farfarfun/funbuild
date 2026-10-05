@@ -77,7 +77,7 @@ funbuild:
 
 - Python 3.10+
 - Git（版本管理与标签推送）
-- 可选：`aicommits`（`npm install -g aicommits`）。只有在**不传** `message` 时才会调用它生成提交信息；没装或调用失败则回退到默认信息 `chore: 更新项目文件`。显式传了 `message` 就直接用该值，不走 aicommits。不影响流程。建议 `aicommits config set type=conventional`：默认的 plain 模式只输出纯描述、不带 `<类型>:` 前缀，funbuild 不会替它补（补就等于猜，猜错就丢描述），只会记一行 warning。
+- 可选：`aicommits`（`npm install -g aicommits`，需 4.x）。只有在**不传** `message` 时才会调用它生成提交信息；没装或调用失败则回退到默认信息 `chore: 更新项目文件`。显式传了 `message` 就直接用该值，不走 aicommits。不影响流程。无需额外配置：funbuild 调用时自带 `--type conventional` 和类型表约束，不依赖 `~/.aicommits` 里的 `type`（它默认是 `plain`，只输出纯描述）。描述语种不管，仍听你自己的 `locale`。
 - Flutter 项目需要本机装好 `flutter` 命令并加入 `PATH`；`funbuild` 本身只负责拼装 `flutter` 命令并不校验其可用性。
 - Flutter 项目的默认发布步骤需要安装 [`funpub`](https://pypi.org/project/funpub/)（`pip install funpub`），并提前用 `funsecret` 配置好 `funpackage` 仓库的凭据，否则 `funpub upload` 会失败。
 
@@ -118,9 +118,9 @@ pip install .
 
 > 命令名中的下划线会被 typer 转成连字符，因此是 `clean-history` 而非 `clean_history`。
 
-> `--message` / `message` 不传时为 `None`：此时优先交给 aicommits 生成提交信息，未安装 aicommits 才回退到默认信息 `chore: 更新项目文件`（定义在 `src/funbuild/core/util.py` 的 `DEFAULT_COMMIT_MESSAGE`）。aicommits 的 `--yes` 只在 TTY 下才真的提交，funbuild 会捕获它的输出、发现它没提交就拿这条信息自己提交。
+> `--message` / `message` 不传时为 `None`：此时优先交给 aicommits 生成提交信息，未安装 aicommits 才回退到默认信息 `chore: 更新项目文件`（定义在 `src/funbuild/core/util.py` 的 `DEFAULT_COMMIT_MESSAGE`）。aicommits 的 `--yes` 只在 TTY 下才真的提交，funbuild 会捕获它的输出、发现它没提交就拿这条信息自己提交；调用时一并把 `<类型>: <描述>` 的格式和类型表交代给它，所以自动生成的信息本身就是合规的。
 >
-> 提交信息建议写成 SPEC §10 的 `<类型>: <描述>`（类型取 `feat`/`fix`/`docs`/`refactor`/`test`/`chore`，描述不限语种），但这只是**约定**：不合约定只会记一行 warning，信息照原样提交，既不中止流程也不改写成兜底信息。
+> 显式传入的信息建议也写成 SPEC §10 的 `<类型>: <描述>`（类型取 `feat`/`fix`/`docs`/`refactor`/`test`/`chore`，描述不限语种），但这只是**约定**：不合约定只会记一行 warning，信息照原样提交，既不中止流程也不改写成兜底信息。
 
 ### 版本
 

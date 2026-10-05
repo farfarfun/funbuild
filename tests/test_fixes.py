@@ -427,8 +427,17 @@ class AicommitsProbeTest(unittest.TestCase):
             ) as run_shell:
                 with patch("funbuild.core.util.run_checked") as run:
                     self.assertTrue(util.aicommits_commit())
-        self.assertIn("aicommits --yes", [c.args[0] for c in run_shell.call_args_list])
+        self.assertIn(util.AICOMMITS_COMMAND, [c.args[0] for c in run_shell.call_args_list])
         run.assert_not_called()
+
+    def test_conventional_format_is_requested(self):
+        """aicommits 的默认 plain 模式只输出纯描述, 生成的信息 100% 缺 `<类型>:` 前缀;
+        它的 conventional 模式又会产出表外的 perf/style/ci (实测如此)。信息既然是
+        funbuild 让它生成的, 格式就得由 funbuild 交代, 不能生成完再告警。"""
+        self.assertIn("--type conventional", util.AICOMMITS_COMMAND)
+        for commit_type in util.COMMIT_MESSAGE_TYPES:
+            self.assertIn(commit_type, util.AICOMMITS_COMMAND)
+        self.assertNotIn("--locale", util.AICOMMITS_COMMAND, "描述不限语种, 语种听用户自己的配置")
 
     def test_generated_message_is_committed_when_aicommits_only_printed(self):
         """aicommits 4.x 的 `--yes` 只在 TTY 下才真的提交; 经 shell 调用时它把信息
