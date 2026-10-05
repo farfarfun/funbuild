@@ -30,6 +30,7 @@ from funbuild.core.util import (
 )
 from funbuild.core.uv_build import UVBuild
 from funbuild.core.version_file_build import VersionFileBuild
+from funbuild.tool.fastapi import ApiRoute, api_route
 
 
 def make_builder(cls=BaseBuild, version=None, repo_path="/tmp"):
@@ -281,8 +282,6 @@ class ApiRouteDeprecationTest(unittest.TestCase):
     """SPEC §15.1: 改名后旧接口要保留并发 DeprecationWarning。"""
 
     def test_old_name_warns_and_still_works(self):
-        from funbuild.tool.fastapi import ApiRoute, api_route
-
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             decorator = api_route("/ping", methods=["GET"])
@@ -292,8 +291,6 @@ class ApiRouteDeprecationTest(unittest.TestCase):
         self.assertIn("ApiRoute", str(caught[0].message))
 
     def test_new_name_does_not_warn(self):
-        from funbuild.tool.fastapi import ApiRoute
-
         with warnings.catch_warnings(record=True) as caught:
             warnings.simplefilter("always")
             ApiRoute("/ping")

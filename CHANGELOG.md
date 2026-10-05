@@ -1,5 +1,25 @@
 # Changelog
 
+## [未发布]
+
+### 修复
+
+- 构建类型探测过程中若有清单文件解析失败且最终没有任何构建类型认领，不再静默退化成 `EmptyBuild`（`funbuild build` 什么都不做却以退出码 0 结束，看起来像发布成功了），改为抛 `BuilderDetectionError` 并列出每个失败的 builder 与原因。真正没有任何清单的仓库（纯文档仓库）仍照旧兜底到 `EmptyBuild`。
+- `load_toml` 解析失败时抛带文件路径的 `ManifestParseError`；tomlkit 原始异常不带文件名，`extbuild/` `exts/` 多清单仓库下无从定位是哪一个文件。
+- `api_route` 按 SPEC §15.1 改为发 `DeprecationWarning` 的兼容入口（此前只是 `api_route = ApiRoute` 的裸别名），指明替代品 `ApiRoute` 与移除版本 2.0；行为完全不变。
+- README 命令表与实现对齐：`push --message` / `build message` 的默认值是「不传」而非 `add`，未传时优先交给 aicommits、未安装才回退到 `chore: 更新项目文件`；补上 `upgrade`/`build` 的 `--version` 与 `push all`（此前 README 写的是「CLI 未提供写入指定版本号的参数」）；示例提交信息改成能通过校验的中文描述。
+- 「aicommits 装了就用、没装回退到 `message`」的描述写反了：显式传了 `message` 就直接用该值，根本不会调用 aicommits。
+
+### 变更
+
+- `farlog` 依赖下界提升到 `>=1.1.7`（SPEC §2 对新代码的要求）。
+- 为 `FlutterBuild.check_type`、`NpmFrontendBuild.check_type`、`util.deep_get` 补齐中文 docstring。
+- GitHub topics 由 10 个收敛为 8 个（SPEC §11 要求 5-8 个）。
+
+### 废弃
+
+- `funbuild.tool.fastapi.api_route`，请改用 `ApiRoute`，计划 2.0 移除。
+
 ## [1.6.82]
 
 ### 修复
