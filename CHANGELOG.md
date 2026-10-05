@@ -1,14 +1,20 @@
 # Changelog
 
-## [未发布]
-
-### 变更
-
-- 提交信息校验不再要求描述含中文，只校验类型取 `feat`/`fix`/`docs`/`refactor`/`test`/`chore`。原先的中文要求把 aicommits 生成的英文信息一律判为非法，于是每次发版都退回默认信息 `chore: 更新项目文件` —— 1.6.85 到 1.6.89 这五个版本的提交标题全是这一句，看不出每次究竟发了什么。类型仍受约束（`修复: ...` 这类中文类型词、`build:` 这类表外类型照旧拒绝）。
+## [1.6.91]
 
 ### 修复
 
-- aicommits 生成的信息只因缺 `<类型>:` 前缀就被整条丢弃，换成回退信息 `chore: 更新项目文件`。aicommits 的 plain 模式（`~/.aicommits` 里 `type=plain`，也是它的默认值）只输出纯描述、从不带前缀，于是**每一条**都被判非法 —— funbuild 自己 1.6.84 到 1.6.90 的提交标题全是这一句，而那几次 aicommits 实际生成的是「修复 latest-packages 查询逻辑：使用 `--refresh-package` 绕过 uv 缓存…」这类可用信息。现在缺前缀时补上 `chore: ` 并保留原描述，表外类型（conventional 的 `perf` / `style` / `ci` 等）整个换成 `chore` 而不叠成 `chore: perf: ...`，只有描述为空时才回退。要让类型也准确，把 aicommits 设成 conventional 模式（`aicommits config set type=conventional`），由模型按 diff 判断 —— funbuild 不按描述猜类型。
+- aicommits 生成的信息只因缺 `<类型>:` 前缀就被整条丢弃，换成回退信息 `chore: 更新项目文件`。aicommits 的 plain 模式（`~/.aicommits` 里 `type=plain`，也是它的默认值）只输出纯描述、从不带前缀，于是**每一条**都被判非法 —— funbuild 自己 1.6.84 到 1.6.91 的提交标题全是这一句，而那几次 aicommits 实际生成的是「修复 latest-packages 查询逻辑：使用 `--refresh-package` 绕过 uv 缓存…」这类可用信息。现在缺前缀时补上 `chore: ` 并保留原描述，表外类型（conventional 的 `perf` / `style` / `ci` 等）整个换成 `chore` 而不叠成 `chore: perf: ...`，只有描述为空时才回退。要让类型也准确，把 aicommits 设成 conventional 模式（`aicommits config set type=conventional`），由模型按 diff 判断 —— funbuild 不按描述猜类型。
+
+### 废弃
+
+- 无。
+
+## [1.6.90]
+
+### 变更
+
+- 提交信息校验不再要求描述含中文，只校验类型取 `feat`/`fix`/`docs`/`refactor`/`test`/`chore`，描述不限语种。类型仍受约束（`修复: ...` 这类中文类型词、`build:` 这类表外类型照旧拒绝）。注意这一条并不是「提交标题总是 `chore: 更新项目文件`」的原因 —— 真正的原因是缺类型前缀，见 1.6.91。
 
 ### 废弃
 
