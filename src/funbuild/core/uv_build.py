@@ -6,6 +6,7 @@ from configparser import ConfigParser
 from typing import Any
 
 from .base import BaseBuild
+from .latest_deps import sync_latest_dependencies
 from .util import deep_create, deep_get, dump_toml, load_toml, logger
 from .version_sync import root_pyproject_project_version, sync_all_manifest_versions
 
@@ -182,6 +183,19 @@ class UVBuild(BaseBuild):
         description = deep_get(config, "project", "description")
         if not isinstance(description, str) or "Add your description here" in description:
             deep_create(config, "project", key="description", value=f"{self.name}")
+
+    def _sync_latest_dependencies(self) -> None:
+        """把 `[tool.funbuild].latest-packages` 里的依赖下界抬到最新已发布版本。
+
+        改写落在仓库内所有 pyproject.toml 上 (含 extbuild/exts 子包), 与
+        `_write_version` 覆盖的范围一致 —— 子包同样会被发布, 下界过期的问题一样。
+
+        返回:
+            无。
+        """
+        changed = sync_latest_dependencies(self.repo_path, self.toml_paths)
+        for path in changed:
+            logger.info(f"latest-packages: 已更新依赖下界 {path}")
 
     def _cmd_delete(self) -> list[str]:
         """清理命令"""

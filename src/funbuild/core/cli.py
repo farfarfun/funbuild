@@ -43,6 +43,13 @@ def funbuild() -> None:
         """升级版本"""
         builder().upgrade(version=version)
 
+    @cli.command("latest-deps")
+    def latest_deps():
+        """把 latest-packages 里的依赖下界抬到最新版 (不构建、不发布)"""
+        # build 里这一步跑在 publish 之前、改动不可见, 单独给个入口才能在真正
+        # 发版之前确认配置写对了、私有 index 也解析得通。
+        builder()._sync_latest_dependencies()
+
     @cli.command()
     def pull():
         """拉取代码"""

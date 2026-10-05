@@ -2,6 +2,14 @@
 
 ## [未发布]
 
+### 新增
+
+- `[tool.funbuild].latest-packages`：列在里面的依赖，每次发版前会把 `pyproject.toml` 里的版本下界抬到当时最新的已发布版本，从而进入 wheel metadata。此前只有 `UVBuild._cmd_build` 开头的 `rm -rf uv.lock && uv lock` 会取最新，那只影响本仓库构建时的解析结果，发出去的 metadata 仍写着早已过期的下界 —— 下游 `pip install -U funflix-api` 默认 `--upgrade-strategy only-if-needed`，已装的旧 `funflix` 满足旧下界就不会被升上来，于是「每次发版都带最新上游」始终落不了地（`funflix-api` 的下界一路停在 `>=0.1.64`，而线上 `funflix` 已是 1.0.5，就是实例）。
+- 最新版本经 `uv pip compile --no-deps` 向 index 查询，因此自动沿用仓库自己 `[[tool.uv.index]]` 配置的私有源；解析不出来时抛 `LatestDependencyError` 中止发布，不会沿用旧下界发出一个钉着过期上游的包。
+- 改写只动版本下界（`>=` / `>` / `==` / `~=`），extras、environment marker 以及 `<` / `<=` / `!=` / `===` 这些调用方刻意加的限制原样保留；`name @ url` 直接引用不动。覆盖 `[project].dependencies`、`[project.optional-dependencies]` 与 `[dependency-groups]`，含 `extbuild/` `exts/` 子包。
+- `funbuild latest-deps`：只做上述改写，不构建、不发布、不提交，用于在真正发版之前确认配置写对了、私有源也解析得通。
+- `<product>-dev` 编排仓库 `scripts/funbuild.toml` 里已有的 `packages` 被当作同一份名单读取，不必重复配置。
+
 ### 修复
 
 - 构建类型探测过程中若有清单文件解析失败且最终没有任何构建类型认领，不再静默退化成 `EmptyBuild`（`funbuild build` 什么都不做却以退出码 0 结束，看起来像发布成功了），改为抛 `BuilderDetectionError` 并列出每个失败的 builder 与原因。真正没有任何清单的仓库（纯文档仓库）仍照旧兜底到 `EmptyBuild`。
@@ -15,6 +23,8 @@
 - `farlog` 依赖下界提升到 `>=1.1.7`（SPEC §2 对新代码的要求）。
 - 为 `FlutterBuild.check_type`、`NpmFrontendBuild.check_type`、`util.deep_get` 补齐中文 docstring。
 - GitHub topics 由 10 个收敛为 8 个（SPEC §11 要求 5-8 个）。
+- `BaseBuild.build` 在 `upgrade` 之后、构建之前新增 `_sync_latest_dependencies()` 钩子（基类为空操作，`UVBuild` / `UvNpmHybridBuild` 覆盖）。必须在构建之前：改的是依赖下界，要进这一次的 wheel metadata 才有意义；改动本身随后由同一次 `push` 提交。
+- 包名的 PEP 503 归一化从 `submodule_workspace_build` 挪到 `util.normalize_package_name`，与新模块共用一套规则。
 
 ### 废弃
 

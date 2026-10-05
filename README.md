@@ -10,6 +10,7 @@
 
 - **多构建策略**：按仓库布局自动匹配 `UVBuild`、`PoetryBuild`、`PypiBuild`、`NpmFrontendBuild`、`UvNpmHybridBuild` 等实现，无需手写切换逻辑。
 - **版本同步**：以根目录 `pyproject.toml` 的 `[project].version` 为主源时，可将版本同步到仓内其它带 `version` 的 `pyproject.toml`、`package.json` 与 `pubspec.yaml`（含子目录；`pubspec.yaml` 只同步 `major.minor.patch`，`+buildNumber` 保持不变）。
+- **依赖取最新**：在 `[tool.funbuild].latest-packages` 里列出的依赖，每次发版前会把版本下界抬到当时最新的已发布版本并写回 `pyproject.toml`，使其进入 wheel metadata，下游升级时必定带上最新的上游。
 - **依赖与工具链**：内置对 **uv**、**ruff** 等工具的调用约定；日志通过 **farlog**，Shell 流程通过 **funshell**。
 - **Git 工作流**：`pull` / `push` / `tag` 等与远程协作；`push` 在提交阶段优先用 **aicommits** 生成说明，未安装时自动回退到默认信息。
 - **失败即中止**：任一 shell 步骤返回非 0 即抛出 `ShellCommandError` 并以非 0 码退出，构建失败不会继续推送或打标签。
@@ -105,6 +106,7 @@ pip install .
 | 命令 | 参数 | 作用 |
 | --- | --- | --- |
 | `upgrade` | `--version`（默认不传＝自动递增） | 版本自增（或写入指定版本号）并写回各清单文件 |
+| `latest-deps` | — | 把 `latest-packages` 里的依赖下界抬到最新版（不构建、不发布，用于单独验证配置） |
 | `pull` | — | `git pull` |
 | `push` | `target`（位置参数，仅接受 `all`）<br>`--message` / `-m`（默认不传）<br>`--batch-size`（默认 `20`） | 按文件修改时间从旧到新分批提交，最后统一推送；传 `all` 时先依次 push 每个 submodule |
 | `install` | — | 构建 + 安装到当前环境 + 清理产物 |
@@ -174,7 +176,51 @@ funbuild release
 funbuild install
 ```
 
-`build` 依次触发：`pull` → `upgrade` → 清理 → 构建 → 安装校验 → 发布 → 清理 → `push` → `tag`。实际命令序列取决于选中的 Build 类型。任一步失败会立即中止，不会继续 push 或打标签。
+`build` 依次触发：`pull` → `upgrade` → 抬依赖下界 → 清理 → 构建 → 安装校验 → 发布 → 清理 → `push` → `tag`。实际命令序列取决于选中的 Build 类型。任一步失败会立即中止，不会继续 push 或打标签。
+
+### 让某个依赖每次发版都取最新
+
+组织内部包之间（如 `funflix-api` 依赖 `funflix`）常常希望每次发版都带上最新的上游。只靠发版时的 `rm -rf uv.lock && uv lock` 是不够的：那只影响本仓库构建时解析到的版本，发布出去的 wheel metadata 仍写着 `pyproject.toml` 里那个早已过期的下界，而下游 `pip install -U funflix-api` 默认 `--upgrade-strategy only-if-needed`，已装的旧 `funflix` 满足旧下界就不会被升上来。
+
+在被依赖方的仓库里声明：
+
+```toml
+# funflix-api/pyproject.toml
+[project]
+dependencies = ["funflix>=1.0.0"]
+
+[tool.funbuild]
+latest-packages = ["funflix"]
+```
+
+此后每次 `funbuild build` 都会在构建之前：向 index 查询 `funflix` 当前最新版本（走 `uv pip compile --no-deps`，因此自动沿用本仓库 `[[tool.uv.index]]` 配置的私有源），把 `dependencies` 里的下界改写为 `funflix>=<最新版>` 并写回 `pyproject.toml`，改动随本次发布的 `push` 一起提交。`[project.optional-dependencies]` 与 `[dependency-groups]`（含 `extbuild/` `exts/` 子包的 `pyproject.toml`）同样覆盖。
+
+改写只动版本下界，调用方刻意写下的其它信息一字不动：
+
+| 原声明 | 最新版为 `1.9.0` 时 |
+| --- | --- |
+| `funflix` | `funflix>=1.9.0` |
+| `funflix>=1.0.0` | `funflix>=1.9.0` |
+| `funflix[all]>=1.0,<2` | `funflix[all]>=1.9.0,<2` |
+| `funflix>=1.0,!=1.5.0` | `funflix>=1.9.0,!=1.5.0` |
+| `funflix>=1.0; python_version>="3.11"` | `funflix>=1.9.0; python_version>="3.11"` |
+| `funflix @ https://example.com/funflix.whl` | 不改动（来源由调用方显式指定，不是 index 上的版本） |
+
+即 `>=` / `>` / `==` / `~=` 跟着最新版走，`<` / `<=` / `!=` / `===` 原样保留。`<product>-dev` 编排仓库无需重复配置，`scripts/funbuild.toml` 里已有的 `packages` 会被当作同一份名单读取。
+
+要在真正发版之前确认配置写对了、私有源也解析得通：
+
+```bash
+funbuild latest-deps   # 只改写 pyproject.toml，不构建、不发布、不提交
+```
+
+两点需要注意：
+
+- **约束里不要留上界**。写成 `funflix>=1.0,<2` 时，`<2` 会被保留，下游永远拿不到 2.x。要「永远最新」就只写 `funflix` 或 `funflix>=x`。
+- **发布顺序由调用方保证**。`funflix` 必须先发完，`funflix-api` 才能解析到它的新版本。两者本来就该一起发时，更合适的做法是建一个 `<product>-dev` 编排仓库交给 `SubmoduleWorkspaceBuild`，一条 `funbuild build` 按顺序发完整条链。
+- 列在 `latest-packages` 里的包解析不出最新版本（私有源不可达、包名写错等）时会抛 `LatestDependencyError` 直接中止发布，不会沿用旧下界继续发出一个钉着过期上游的包。
+
+> Poetry 的 `[tool.poetry.dependencies]` 表形式暂不在覆盖范围内，目前只处理 PEP 621 的 `[project]` 依赖数组与 PEP 735 的 `[dependency-groups]`。
 
 ### 维护类（高风险）
 
@@ -211,11 +257,11 @@ funbuild build
 
 ## 配置说明
 
-- **Python 项目**：在根目录 `pyproject.toml` 中维护 `[project].version` 与依赖；UV 类构建会读写该版本并同步到其它清单。
+- **Python 项目**：在根目录 `pyproject.toml` 中维护 `[project].version` 与依赖；UV 类构建会读写该版本并同步到其它清单。可选的 `[tool.funbuild].latest-packages` 用于指定「每次发版取最新」的依赖，见上方「[让某个依赖每次发版都取最新](#让某个依赖每次发版都取最新)」。
 - **纯前端 / 子包**：在对应 `package.json` 中可使用 `funbuild` 字段（对象或 `true`）扩展行为（例如自定义 `build` 命令、`cleanDirs` 等），具体逻辑见源码中 `NpmFrontendBuild`。
 - **Flutter 项目**：在 `pubspec.yaml` 中可使用 `funbuild` 字段自定义 `build` / `install` / `publish` / `cleanDirs`，具体逻辑见源码中 `FlutterBuild`；详见上方「[打包支持的项目类型](#打包支持的项目类型)」里的 Flutter 小节。
 
-构建类型的判定顺序见上方「[打包支持的项目类型](#打包支持的项目类型)」表格及 `src/funbuild/core/registry.py` 中的注册表；无需再使用旧文档中的 `[tool.funbuild]` 等虚构段名。
+构建类型的判定顺序见上方「[打包支持的项目类型](#打包支持的项目类型)」表格及 `src/funbuild/core/registry.py` 中的注册表 —— 构建类型由仓库布局自动探测，不需要也无法在配置里指定。`[tool.funbuild]` 目前只认 `latest-packages` 一个键。
 
 ## 集成组件
 

@@ -118,6 +118,16 @@ class BaseBuild:
         total = parts[0] * step * step + parts[1] * step + parts[2] + 1
         return f"{total // (step * step)}.{total // step % step}.{total % step}"
 
+    def _sync_latest_dependencies(self) -> None:
+        """发版前把「每次取最新」的依赖下界抬到最新已发布版本。
+
+        默认什么都不做, 由理解自己清单格式的子类覆盖 (见 UVBuild)。
+
+        返回:
+            无。
+        """
+        return
+
     def _cmd_build(self) -> list[str]:
         """构建命令"""
         return []
@@ -289,7 +299,7 @@ class BaseBuild:
         run_checked(self._cmd_build() + self._cmd_install() + self._cmd_delete())
 
     def build(self, message: str | None = None, version: str | None = None, *args, **kwargs) -> None:
-        """完整发布流程: pull -> upgrade -> 清理 -> 构建 -> 安装校验 -> 发布 -> 清理 -> push -> tag。
+        """完整发布流程: pull -> upgrade -> 抬依赖下界 -> 清理 -> 构建 -> 安装校验 -> 发布 -> 清理 -> push -> tag。
 
         任一步失败会立即中止 (由 run_checked 抛出异常), 不会继续 push 或打标签。
 
@@ -308,6 +318,9 @@ class BaseBuild:
         logger.info(f"{self.name} build")
         self.pull()
         self.upgrade(version=version)
+        # 必须在构建之前: 改的是 pyproject 里的依赖下界, 要进这一次的 wheel
+        # metadata 才有意义。改动本身随后由 push 一起提交。
+        self._sync_latest_dependencies()
         run_checked(
             self._cmd_delete() + self._cmd_build() + self._cmd_install() + self._cmd_publish() + self._cmd_delete()
         )

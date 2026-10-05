@@ -95,6 +95,15 @@ def safe_clean_dir(value: Any, *, source: str) -> str | None:
     return item
 
 
+def normalize_package_name(name: str) -> str:
+    """PEP 503 归一化: 大小写、`_`/`.`/`-` 的写法差异不应影响是否命中配置。
+
+    npm/pub 的包名惯例本就是全小写, 借同一套归一化规则统一比对, 不需要
+    再为每个生态单独维护一套大小写/分隔符规则。
+    """
+    return re.sub(r"[-_.]+", "-", name.strip().lower())
+
+
 def load_toml(path: str) -> Any:
     """读取 TOML, 返回可像 dict 一样操作但保留原始排版的文档对象。
 

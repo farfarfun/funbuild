@@ -45,6 +45,11 @@ class UvNpmHybridBuild(BaseBuild):
         self._uv.version = self.version
         self._uv._write_version()
 
+    def _sync_latest_dependencies(self) -> None:
+        # 混合仓的 Python 侧就是一个完整的 UVBuild, 依赖下界的事交给它
+        if self._uv is not None:
+            self._uv._sync_latest_dependencies()
+
     def _cmd_delete(self) -> list[str]:
         assert self._uv is not None and self._npm is not None
         seen: set[str] = set()

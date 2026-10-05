@@ -9,20 +9,15 @@ import yaml
 from funshell import run_shell
 
 from .base import BaseBuild, ensure_valid_commit_message
-from .util import deep_get, dump_toml, load_toml, logger, parse_version, run_checked
+from .util import deep_get, dump_toml, load_toml, logger, normalize_package_name, parse_version, run_checked
 
 # PEP 508 依赖声明串的包名部分, 如 "funlesson-core>=1.0.0" -> "funlesson-core",
 # "funlesson_core[extra]" -> "funlesson_core"。
 _DEP_NAME_RE = re.compile(r"^[A-Za-z0-9_.\-]+")
 
-
-def _normalize_package_name(name: str) -> str:
-    """PEP 503 归一化: 大小写、`_`/`.`/`-` 的写法差异不应影响是否命中配置。
-
-    npm/pub 的包名惯例本就是全小写, 借同一套归一化规则统一比对, 不需要
-    再为每个生态单独维护一套大小写/分隔符规则。
-    """
-    return re.sub(r"[-_.]+", "-", name.strip().lower())
+# 归一化实现已挪到 util, 与 latest_deps 共用同一套规则; 这里保留别名, 免得把
+# 本文件里十来处调用全改一遍。
+_normalize_package_name = normalize_package_name
 
 
 class SubmoduleWorkspaceBuild(BaseBuild):
