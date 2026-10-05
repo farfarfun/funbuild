@@ -4,6 +4,24 @@
 
 ### 新增
 
+- `latest-packages` 名单里的包, 若在 `[project].dependencies`、`[project.optional-dependencies]`、`[dependency-groups]`(含 `extbuild/` `exts/` 子包)里都还没出现过, 现在会按最新版本追加到根 `pyproject.toml` 的 `[project].dependencies`(该键不存在时一并创建)。此前这种情况是静默跳过的 —— 在 `funflix-api` 里写上 `latest-packages = ["funflix"]` 却还没把 `funflix` 写进 `dependencies` 时, 整条配置不产生任何效果: 包不在依赖里, 既进不了 wheel metadata, 也不会被 `uv lock` 解析。
+- 补齐有两处刻意的例外: 包名等于本仓库 `[project].name` 时不补(自己依赖自己会让 `uv` 直接解析失败); 补齐只认根 `pyproject.toml` 的 `[tool.funbuild].latest-packages`, 不认 `scripts/funbuild.toml` 的 `packages` —— 后者是编排仓库「这条链上要发哪些包」的清单, 照搬会给根 `pyproject.toml` 凭空加上一堆它并不依赖的包(抬下界仍照旧读这两个来源)。根 `pyproject.toml` 没有 `[project]` 表时只记告警, 不凭空造出一份缺 `name` / `version` 的残缺元数据。
+
+### 变更
+
+- 自身依赖下界抬到当前最新: `uv>=0.12.23`、`tomlkit>=0.15.1`、`pyyaml>=6.0.3`、`farlog>=1.1.8`、`funshell>=1.0.23`。`funshell` 这一条是实际约束而非例行更新 —— 代码里的 `run_shell(..., cwd=, timeout=)` 是新版本才有的参数, 下界停在 `>=1.0.2` 时新装的环境可以解析到一个没有这些参数的 `funshell`, 一调用就 `TypeError`。
+- funbuild 自己配上 `[tool.funbuild].latest-packages = ["farlog", "funshell"]`, 此后这两个组织内部包每次发版自动跟最新。第三方包(`uv` / `tomlkit` / `pyyaml` / `typer-slim`)不进名单: 新版本可能带破坏性变更, 要人看过才抬。
+- `sync_latest_dependencies` 改为「先把所有清单读进内存、改完再统一落盘」。「这个包有没有声明过」必须看齐全部清单(在子包里声明了就不该再往根上补一份), 而补齐又要改根文档, 边读边写会把根文件写两次, 且第二次改在一份已经过期的文档上。清单按 `realpath` 去重 —— `UVBuild.toml_paths[0]` 是相对路径 `./pyproject.toml`, 与按仓库根拼出来的路径指向同一个文件。
+- 新增 `latest_deps.pyproject_latest_packages()`, 即只来自根 `pyproject.toml` 的那份名单; `latest_packages()` 的两来源取并集行为不变。
+
+### 废弃
+
+- 无。
+
+## [1.6.84]
+
+### 新增
+
 - `[tool.funbuild].latest-packages`：列在里面的依赖，每次发版前会把 `pyproject.toml` 里的版本下界抬到当时最新的已发布版本，从而进入 wheel metadata。此前只有 `UVBuild._cmd_build` 开头的 `rm -rf uv.lock && uv lock` 会取最新，那只影响本仓库构建时的解析结果，发出去的 metadata 仍写着早已过期的下界 —— 下游 `pip install -U funflix-api` 默认 `--upgrade-strategy only-if-needed`，已装的旧 `funflix` 满足旧下界就不会被升上来，于是「每次发版都带最新上游」始终落不了地（`funflix-api` 的下界一路停在 `>=0.1.64`，而线上 `funflix` 已是 1.0.5，就是实例）。
 - 最新版本经 `uv pip compile --no-deps` 向 index 查询，因此自动沿用仓库自己 `[[tool.uv.index]]` 配置的私有源；解析不出来时抛 `LatestDependencyError` 中止发布，不会沿用旧下界发出一个钉着过期上游的包。
 - 改写只动版本下界（`>=` / `>` / `==` / `~=`），extras、environment marker 以及 `<` / `<=` / `!=` / `===` 这些调用方刻意加的限制原样保留；`name @ url` 直接引用不动。覆盖 `[project].dependencies`、`[project.optional-dependencies]` 与 `[dependency-groups]`，含 `extbuild/` `exts/` 子包。

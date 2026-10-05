@@ -187,11 +187,13 @@ class SyncLatestDependenciesTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp, "pyproject.toml")
             path.write_text(
-                '[project]\ndependencies = ["requests>=2"]\n\n[tool.funbuild]\nlatest-packages = ["funflix"]\n',
+                '[project]\ndependencies = ["requests>=2", "funflix>=1.0.0"]\n'
+                "\n[tool.funbuild]\nlatest-packages = ["
+                '"funflix"]\n',
                 encoding="utf-8",
             )
             with patch("funbuild.core.latest_deps.run_shell", return_value="funflix==1.9.0\n"):
-                self.assertEqual(sync_latest_dependencies(temp, [str(path)]), [])
+                sync_latest_dependencies(temp, [str(path)])
             self.assertIn('"requests>=2"', path.read_text(encoding="utf-8"))
 
     def test_already_latest_leaves_file_alone(self):
@@ -205,6 +207,121 @@ class SyncLatestDependenciesTest(unittest.TestCase):
             with patch("funbuild.core.latest_deps.run_shell", return_value="funflix==1.9.0\n"):
                 self.assertEqual(sync_latest_dependencies(temp, [str(path)]), [])
             self.assertEqual(path.stat().st_mtime_ns, before)
+
+
+class MissingDependencyTest(unittest.TestCase):
+    """名单里声明了却没写进依赖的包: 不补上, 这条配置就等于白写。"""
+
+    @staticmethod
+    def _sync(temp, raw, extra_paths=()):
+        path = Path(temp, "pyproject.toml")
+        path.write_text(raw, encoding="utf-8")
+        with patch("funbuild.core.latest_deps.run_shell", return_value="funflix==1.9.0\n"):
+            changed = sync_latest_dependencies(temp, [str(path), *extra_paths])
+        return path, changed
+
+    def test_missing_package_is_added(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path, changed = self._sync(
+                temp,
+                '[project]\nname = "funflix-api"\ndependencies = ["requests>=2"]\n'
+                '\n[tool.funbuild]\nlatest-packages = ["funflix"]\n',
+            )
+            self.assertEqual(changed, [str(path)])
+            config = tomlkit.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual(config["project"]["dependencies"], ["requests>=2", "funflix>=1.9.0"])
+
+    def test_dependencies_key_is_created_when_absent(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path, changed = self._sync(
+                temp,
+                '[project]\nname = "funflix-api"\n\n[tool.funbuild]\nlatest-packages = ["funflix"]\n',
+            )
+            self.assertEqual(changed, [str(path)])
+            config = tomlkit.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual(config["project"]["dependencies"], ["funflix>=1.9.0"])
+
+    def test_optional_declaration_counts_as_declared(self):
+        """已经写在 optional-dependencies 里了, 不该再往主 dependencies 补一份。"""
+        with tempfile.TemporaryDirectory() as temp:
+            path, _ = self._sync(
+                temp,
+                '[project]\nname = "funflix-api"\ndependencies = ["requests>=2"]\n'
+                '\n[project.optional-dependencies]\nweb = ["funflix>=1.0.0"]\n'
+                '\n[tool.funbuild]\nlatest-packages = ["funflix"]\n',
+            )
+            config = tomlkit.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual(config["project"]["dependencies"], ["requests>=2"])
+            self.assertEqual(config["project"]["optional-dependencies"]["web"], ["funflix>=1.9.0"])
+
+    def test_declaration_in_subpackage_counts_as_declared(self):
+        with tempfile.TemporaryDirectory() as temp:
+            sub = Path(temp, "extbuild", "plugin")
+            sub.mkdir(parents=True)
+            sub_path = sub / "pyproject.toml"
+            sub_path.write_text(
+                '[project]\nname = "funflix-plugin"\ndependencies = ["funflix>=1.0.0"]\n', encoding="utf-8"
+            )
+            path, _ = self._sync(
+                temp,
+                '[project]\nname = "funflix-api"\ndependencies = ["requests>=2"]\n'
+                '\n[tool.funbuild]\nlatest-packages = ["funflix"]\n',
+                extra_paths=[str(sub_path)],
+            )
+            self.assertEqual(
+                tomlkit.loads(path.read_text(encoding="utf-8"))["project"]["dependencies"], ["requests>=2"]
+            )
+            self.assertIn('"funflix>=1.9.0"', sub_path.read_text(encoding="utf-8"))
+
+    def test_own_package_is_never_added(self):
+        """自己依赖自己会让 uv 直接解析失败。"""
+        with tempfile.TemporaryDirectory() as temp:
+            path, changed = self._sync(
+                temp,
+                '[project]\nname = "funflix"\ndependencies = ["requests>=2"]\n'
+                '\n[tool.funbuild]\nlatest-packages = ["funflix"]\n',
+            )
+            self.assertEqual(changed, [])
+            self.assertEqual(
+                tomlkit.loads(path.read_text(encoding="utf-8"))["project"]["dependencies"], ["requests>=2"]
+            )
+
+    def test_workspace_chain_is_not_injected(self):
+        """scripts/funbuild.toml 的 packages 是「这条链上要发哪些包」, 不是本仓库的依赖。"""
+        with tempfile.TemporaryDirectory() as temp:
+            Path(temp, "scripts").mkdir()
+            Path(temp, "scripts/funbuild.toml").write_text('packages = ["funflix"]\n', encoding="utf-8")
+            path, changed = self._sync(temp, '[project]\nname = "funflix-dev"\ndependencies = ["requests>=2"]\n')
+            self.assertEqual(changed, [])
+            self.assertEqual(
+                tomlkit.loads(path.read_text(encoding="utf-8"))["project"]["dependencies"], ["requests>=2"]
+            )
+
+    def test_no_project_table_warns_instead_of_fabricating_one(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path, changed = self._sync(temp, '[tool.funbuild]\nlatest-packages = ["funflix"]\n')
+            self.assertEqual(changed, [])
+            self.assertNotIn("project", tomlkit.loads(path.read_text(encoding="utf-8")))
+
+    def test_root_is_rewritten_once_when_listed_relatively(self):
+        """toml_paths[0] 是 "./pyproject.toml", 与拼出来的根路径是同一个文件。"""
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp, "pyproject.toml")
+            path.write_text(
+                '[project]\nname = "funflix-api"\ndependencies = ["requests>=2"]\n'
+                '\n[tool.funbuild]\nlatest-packages = ["funflix"]\n',
+                encoding="utf-8",
+            )
+            cwd = os.getcwd()
+            os.chdir(temp)
+            try:
+                with patch("funbuild.core.latest_deps.run_shell", return_value="funflix==1.9.0\n"):
+                    changed = sync_latest_dependencies(temp, ["./pyproject.toml"])
+            finally:
+                os.chdir(cwd)
+            self.assertEqual(changed, ["./pyproject.toml"])
+            config = tomlkit.loads(path.read_text(encoding="utf-8"))
+            self.assertEqual(config["project"]["dependencies"], ["requests>=2", "funflix>=1.9.0"])
 
 
 class BuildPipelineHookTest(unittest.TestCase):

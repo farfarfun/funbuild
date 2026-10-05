@@ -4,13 +4,13 @@ build-backend = "hatchling.build"
 
 [project]
 name = "funbuild"
-version = "1.6.84"
+version = "1.6.85"
 description = "Python / 前端 / Flutter 仓库的一键发版工具：版本递增、构建、发布、打 tag，自动适配 uv / Poetry / npm / Flutter"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
 license-files = ["LICENSE"]
-dependencies = [ "uv>=0.8.4", "tomlkit>=0.13.2", "pyyaml>=6.0", "typer-slim>=0.24.0", "farlog>=1.1.7", "funshell>=1.0.2",]
+dependencies = [ "uv>=0.12.23", "tomlkit>=0.15.1", "pyyaml>=6.0.3", "typer-slim>=0.24.0", "farlog>=1.1.8", "funshell>=1.0.23",]
 keywords = [ "build", "requirements", "packaging", "uv",]
 [[project.authors]]
 name = "牛哥"
@@ -46,6 +46,13 @@ testpaths = [ "tests",]
 # 必须显式指向 src: 否则 pytest 会 import 到全局装着的 funbuild, 测的是已发布的
 # 旧版本而不是工作区代码——改动跑绿了也毫无意义。
 pythonpath = [ "src",]
+
+[tool.funbuild]
+# 组织内部包每次发版都跟最新: funbuild 用到的 run_shell(cwd=/timeout=) 等能力就是
+# 在这两个包的新版本里加的, 下界停在老版本会让新装的环境解析到一个没这些参数的
+# funshell, 直接 TypeError。第三方包 (uv / tomlkit / pyyaml / typer-slim) 不进这份
+# 名单: 它们的新版本可能带破坏性变更, 要人看过才能抬。
+latest-packages = [ "farlog", "funshell",]
 
 [tool.uv]
 package = true

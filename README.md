@@ -10,7 +10,7 @@
 
 - **多构建策略**：按仓库布局自动匹配 `UVBuild`、`PoetryBuild`、`PypiBuild`、`NpmFrontendBuild`、`UvNpmHybridBuild` 等实现，无需手写切换逻辑。
 - **版本同步**：以根目录 `pyproject.toml` 的 `[project].version` 为主源时，可将版本同步到仓内其它带 `version` 的 `pyproject.toml`、`package.json` 与 `pubspec.yaml`（含子目录；`pubspec.yaml` 只同步 `major.minor.patch`，`+buildNumber` 保持不变）。
-- **依赖取最新**：在 `[tool.funbuild].latest-packages` 里列出的依赖，每次发版前会把版本下界抬到当时最新的已发布版本并写回 `pyproject.toml`，使其进入 wheel metadata，下游升级时必定带上最新的上游。
+- **依赖取最新**：在 `[tool.funbuild].latest-packages` 里列出的依赖，每次发版前会把版本下界抬到当时最新的已发布版本并写回 `pyproject.toml`，使其进入 wheel metadata，下游升级时必定带上最新的上游；名单里的包若还没写进 `dependencies`，会按最新版本补上。
 - **依赖与工具链**：内置对 **uv**、**ruff** 等工具的调用约定；日志通过 **farlog**，Shell 流程通过 **funshell**。
 - **Git 工作流**：`pull` / `push` / `tag` 等与远程协作；`push` 在提交阶段优先用 **aicommits** 生成说明，未安装时自动回退到默认信息。
 - **失败即中止**：任一 shell 步骤返回非 0 即抛出 `ShellCommandError` 并以非 0 码退出，构建失败不会继续推送或打标签。
@@ -194,6 +194,26 @@ latest-packages = ["funflix"]
 ```
 
 此后每次 `funbuild build` 都会在构建之前：向 index 查询 `funflix` 当前最新版本（走 `uv pip compile --no-deps`，因此自动沿用本仓库 `[[tool.uv.index]]` 配置的私有源），把 `dependencies` 里的下界改写为 `funflix>=<最新版>` 并写回 `pyproject.toml`，改动随本次发布的 `push` 一起提交。`[project.optional-dependencies]` 与 `[dependency-groups]`（含 `extbuild/` `exts/` 子包的 `pyproject.toml`）同样覆盖。
+
+名单里的包如果在上述任何一处依赖声明里都还没出现过，会按最新版本追加到根 `pyproject.toml` 的 `[project].dependencies`（`dependencies` 键不存在时一并创建）：
+
+```toml
+# 改写前
+[project]
+name = "funflix-api"
+dependencies = ["requests>=2"]
+
+[tool.funbuild]
+latest-packages = ["funflix"]
+
+# 改写后
+dependencies = ["requests>=2", "funflix>=1.9.0"]
+```
+
+不补上这条配置就等于白写：包不在依赖里，既进不了 wheel metadata，也不会被 `uv lock` 解析。两点例外：
+
+- **本仓库自己的包名不补**——自己依赖自己会让 `uv` 直接解析失败。
+- **只认根 `pyproject.toml` 里的那份名单**。`<product>-dev` 编排仓库 `scripts/funbuild.toml` 的 `packages` 仍会被用来抬下界，但不会被补进 `dependencies`：那是「这条链上要发哪些包」的清单，不是「本仓库依赖哪些包」，照搬会给编排仓库凭空加上一堆它并不依赖的包。根 `pyproject.toml` 没有 `[project]` 表时同样不补，只记一条告警——凭空造出 `[project]` 只会生成一份缺 `name` / `version` 的残缺元数据。
 
 改写只动版本下界，调用方刻意写下的其它信息一字不动：
 
