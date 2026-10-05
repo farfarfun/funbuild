@@ -1,5 +1,6 @@
 #!/usr/bin/python3
 
+import os
 import re
 import shlex
 import shutil
@@ -57,6 +58,41 @@ def is_valid_commit_message(message: str) -> bool:
         return False
     subject = lines[0]
     return _COMMIT_MESSAGE_RE.fullmatch(subject) is not None
+
+
+# cleanDirs 这类用户配置会被拼进 `rm -rf <值>` 并交给 shell 执行, 必须先过滤。
+# 允许 glob (默认清理项本来就有 extbuild/*/dist), 但不允许任何能改变命令结构或
+# 把删除范围带出仓库的字符。
+_SHELL_METACHARS = set(";&|$`()<>\n\r\t\"'\\ ")
+
+
+def safe_clean_dir(value: Any, *, source: str) -> str | None:
+    """校验 `funbuild.cleanDirs` 里的一项, 通过则返回可直接拼进 `rm -rf` 的字符串。
+
+    这些值来自 `package.json` / `pubspec.yaml`, 原先未经任何校验就 f-string 拼进
+    `rm -rf {d}` 交给 shell: 带空格会被拆成多个删除目标, 带 `;` 或反引号即是命令
+    注入, 写成 `/` 或 `../..` 则直接删到仓库外面去。
+
+    参数:
+        value: 配置里的原始项, 非字符串或空白一律丢弃。
+        source: 配置来源 (文件路径或字段名), 仅用于告警信息定位。
+    返回:
+        合法时返回去空白后的相对路径 (可含 `*` `?` `[]` glob); 非法时返回 None,
+        并记录一条带来源的告警。
+    """
+    if not isinstance(value, str) or not value.strip():
+        return None
+    item = value.strip()
+    if os.path.isabs(item) or item.startswith("~"):
+        logger.warning(f"忽略 {source} 的 cleanDirs 项 {item!r}: 只允许仓库内的相对路径")
+        return None
+    if any(part == ".." for part in re.split(r"[\\/]+", item)):
+        logger.warning(f"忽略 {source} 的 cleanDirs 项 {item!r}: 不允许 `..` 跳出仓库")
+        return None
+    if set(item) & _SHELL_METACHARS:
+        logger.warning(f"忽略 {source} 的 cleanDirs 项 {item!r}: 含 shell 元字符或空白")
+        return None
+    return item
 
 
 def load_toml(path: str) -> Any:

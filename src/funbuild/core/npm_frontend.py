@@ -5,7 +5,7 @@ import os
 import shlex
 
 from .base import BaseBuild
-from .util import logger, run_checked
+from .util import logger, run_checked, safe_clean_dir
 from .version_sync import root_pyproject_project_version, sync_all_manifest_versions
 
 
@@ -288,7 +288,12 @@ class NpmFrontendBuild(BaseBuild):
     def _cmd_delete(self) -> list[str]:
         dirs = self._funbuild_cfg.get("cleanDirs")
         if isinstance(dirs, list) and dirs:
-            return [f"rm -rf {d}" for d in dirs if isinstance(d, str) and d.strip()]
+            # package.json 的 cleanDirs 是用户配置, 直接拼进 `rm -rf` 等于把 shell
+            # 交给清单文件; 先过一遍 safe_clean_dir (允许 glob, 拒绝绝对路径/..
+            # /shell 元字符)。全部非法时返回空列表而不是退回默认清理项 —— 用户
+            # 明确配置过就不该偷偷删别的目录。
+            safe = [c for d in dirs if (c := safe_clean_dir(d, source="package.json funbuild.cleanDirs"))]
+            return [f"rm -rf {d}" for d in safe]
         return [
             "rm -rf dist",
             "rm -rf build",

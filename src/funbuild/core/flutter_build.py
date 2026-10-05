@@ -6,7 +6,7 @@ import shlex
 import yaml
 
 from .base import BaseBuild
-from .util import logger
+from .util import logger, safe_clean_dir
 from .version_sync import replace_pubspec_version_line, sync_all_manifest_versions
 
 # funpub (https://pypi.org/project/funpub/) 上传到的私有通用仓库名; 由使用方
@@ -167,5 +167,9 @@ class FlutterBuild(BaseBuild):
         prefix = self._fvm_path_prefix()
         custom = self._funbuild_cfg.get("cleanDirs")
         if isinstance(custom, list) and custom:
-            return [*prefix, *(f"rm -rf {d}" for d in custom if isinstance(d, str) and d.strip())]
+            # 同 NpmFrontendBuild: pubspec.yaml 里的 cleanDirs 未经校验就拼进
+            # `rm -rf` 的话, 带空格会拆成多个删除目标, 带 `;`/反引号即命令注入,
+            # 写成绝对路径或 `../..` 会删到仓库外面去。
+            safe = [c for d in custom if (c := safe_clean_dir(d, source="pubspec.yaml funbuild.cleanDirs"))]
+            return [*prefix, *(f"rm -rf {d}" for d in safe)]
         return [*prefix, "flutter clean"]
