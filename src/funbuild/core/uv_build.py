@@ -60,6 +60,46 @@ class UVBuild(BaseBuild):
                         if os.path.exists(toml_path):
                             self.toml_paths.append(toml_path)
 
+    @staticmethod
+    def _is_virtual_project(toml_path: str) -> bool:
+        """`[tool.uv] package = false` 声明的 uv 虚拟项目: 有依赖、有脚本, 但本身
+        不是可安装包。
+
+        这类项目 (数据仓库、只放运维脚本的仓库) 一样需要 `uv sync` 拉依赖, 所以
+        pyproject 里 `[project]` 必须在, check_type 也照旧认领它 —— 版本同步、
+        push、打 tag 都该照常做。但 `uv build` 对它必然失败: 没有 `[build-system]`
+        时 uv 回退到 `setuptools.build_meta:__legacy__`, 找不到任何包就直接报错,
+        于是整条发版链在这个仓库上中断。实测 funread-dev 的 apps/funread-dat 正是
+        如此, 而它的 setup.sh 里已经写着「构建发布由 funbuild build 统一处理, 它
+        会跳过这个仓库」—— 这个方法让那句话成真。
+
+        与 `NpmFrontendBuild` 认 `package.json` 的 `private: true` 是同一回事:
+        清单自己已经说了「我不是要发布的包」, 照它说的做, 不必另造一个 funbuild
+        专用开关。
+
+        解析失败按「不是虚拟项目」处理: 清单读不出来的后果由后面真正解析它的
+        `_write_version` 去报, 不该在这里被转成「静默跳过构建」。
+        """
+        try:
+            config = load_toml(toml_path)
+        except Exception as e:
+            logger.warning(f"无法判断 {toml_path} 是否为 uv 虚拟项目, 按可构建处理: {e}")
+            return False
+        return deep_get(config, "tool", "uv", "package") is False
+
+    def _buildable_pkg_dirs(self) -> list[str]:
+        """要构建/发布的包目录, 按 `toml_paths` 顺序去重, 排除 uv 虚拟项目。"""
+        dirs: list[str] = []
+        for toml_path in self.toml_paths:
+            pkg_dir = os.path.normpath(os.path.dirname(toml_path) or ".")
+            if pkg_dir in dirs:
+                continue
+            if self._is_virtual_project(toml_path):
+                logger.info(f"skip build/publish, uv 虚拟项目 (package = false): {toml_path}")
+                continue
+            dirs.append(pkg_dir)
+        return dirs
+
     def check_type(self) -> bool:
         """检查是否为UV项目; 版本始终以根目录 [project].version 为主。"""
         if not os.path.exists(self.toml_paths[0]):
@@ -234,6 +274,12 @@ class UVBuild(BaseBuild):
 
     def _cmd_publish(self) -> list[str]:
         """发布命令: 按各包构建产物目录分别 uv publish。"""
+        pkg_dirs = self._buildable_pkg_dirs()
+        # 整仓都是虚拟项目时提前返回: 没东西要上传, 就不该顺手把 ~/.pypirc 里的
+        # 凭据导出到环境变量, 让它被后续无关的子进程继承。
+        if not pkg_dirs:
+            return []
+
         config = ConfigParser()
         pypirc = os.path.expanduser("~/.pypirc")
         server = "pypi"
@@ -250,14 +296,9 @@ class UVBuild(BaseBuild):
         logger.info(f"public server: {server}")
         self._export_publish_credentials(config[server] if config.has_section(server) else {})
 
-        dirs_seen: set[str] = set()
         cmds: list[str] = []
         root = self.repo_path.strip()
-        for toml_path in self.toml_paths:
-            pkg_dir = os.path.normpath(os.path.dirname(toml_path))
-            if pkg_dir in dirs_seen:
-                continue
-            dirs_seen.add(pkg_dir)
+        for pkg_dir in pkg_dirs:
             out_dir = _uv_bundle_out_dir_abs(root, pkg_dir)
             cmds.append(" ".join(["uv", "publish", shlex.quote(f"{out_dir}/*")]))
         return cmds
@@ -277,13 +318,8 @@ class UVBuild(BaseBuild):
         if self.is_org_repo:
             result.append("uvx ruff format")
             result.append("uvx ruff clean")
-        seen_pkg: set[str] = set()
         root = self.repo_path.strip()
-        for toml_path in self.toml_paths:
-            pkg_dir = os.path.normpath(os.path.dirname(toml_path))
-            if pkg_dir in seen_pkg:
-                continue
-            seen_pkg.add(pkg_dir)
+        for pkg_dir in self._buildable_pkg_dirs():
             out_dir = _uv_bundle_out_dir_abs(root, pkg_dir)
             result.append(
                 " ".join(
@@ -304,17 +340,29 @@ class UVBuild(BaseBuild):
         return result
 
     def _cmd_install(self) -> list[str]:
-        """安装命令: 安装各包构建产物目录下的 wheel。"""
+        """安装命令: 安装各包构建产物目录下的 wheel。
+
+        整仓都是虚拟项目时没有 wheel, `dist/funbuild/*/*.whl` 这个 glob 会原样
+        传给 uv 并报「找不到文件」, 把一次本该什么都不做的发版变成失败。
+        """
+        if not self._buildable_pkg_dirs():
+            return []
         return ["uv pip install dist/funbuild/*/*.whl"]
 
     def _published_distributions(self) -> dict[str, str]:
         """每个 pyproject 的 [project].name -> 它所在的目录 (含 extbuild/exts 子包)。
 
         分发名得按清单读, 不能用目录名: `[project].name` 才是包的真实身份, 重命名后
-        目录名往往还没跟上。
+        目录名往往还没跟上。虚拟项目没有分发名可言, 排除在外。
         """
+        pkg_dirs = self._buildable_pkg_dirs()
+        if not pkg_dirs:
+            return {}
+        buildable = set(pkg_dirs)
         found: dict[str, str] = {}
         for toml_path in self.toml_paths:
+            if os.path.normpath(os.path.dirname(toml_path) or ".") not in buildable:
+                continue
             name = deep_get(load_toml(toml_path), "project", "name")
             if isinstance(name, str) and name.strip():
                 found[name.strip()] = os.path.realpath(os.path.dirname(toml_path) or ".")

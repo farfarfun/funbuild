@@ -1102,3 +1102,96 @@ class InstallIntoRunningEnvTest(unittest.TestCase):
                             ):
                                 builder.build(message="chore: 发版")
         self.assertEqual(order, ["push", "tag", "install"])
+
+
+class UVVirtualProjectTest(unittest.TestCase):
+    """回归: `[tool.uv] package = false` 的虚拟项目被当成可发布包去构建。
+
+    funread-dev 的 apps/funread-dat 是数据仓库: pyproject 里有 `[project]`(要
+    `uv sync` 拉依赖) 但标了 `package = false`, 也没有 `[build-system]`。
+    `uv build` 于是回退到 `setuptools.build_meta:__legacy__` 并直接失败, 而
+    `SubmoduleWorkspaceBuild` 是按 submodule 顺序串行转发的 —— 一个数据仓库把
+    整条发版链掐断在中间, 前面的 app 已经上了索引, 后面的一个都没发。
+    """
+
+    @contextlib.contextmanager
+    def builder(self, *, package_false: bool, extra_pkg: str | None = None):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp) / "pkg"
+            repo.mkdir()
+            body = '[project]\nname = "pkg"\nversion = "1.0.0"\n'
+            if package_false:
+                body += "\n[tool.uv]\npackage = false\n"
+            (repo / "pyproject.toml").write_text(body, encoding="utf-8")
+            if extra_pkg:
+                sub = repo / "extbuild" / extra_pkg
+                sub.mkdir(parents=True)
+                (sub / "pyproject.toml").write_text(
+                    f'[project]\nname = "{extra_pkg}"\nversion = "1.0.0"\n', encoding="utf-8"
+                )
+            cwd = os.getcwd()
+            os.chdir(repo)
+            git_repo_root.cache_clear()
+            try:
+                with patch("funbuild.core.base.run_shell", return_value=str(repo)):
+                    yield UVBuild()
+            finally:
+                os.chdir(cwd)
+                git_repo_root.cache_clear()
+
+    def test_virtual_project_is_not_built(self):
+        with self.builder(package_false=True) as build:
+            self.assertFalse([c for c in build._cmd_build() if c.startswith("uv build")])
+
+    def test_virtual_project_still_refreshes_the_lock(self):
+        """跳过的只是构建产物, 依赖解析照旧 —— `uv sync` 仍然要用这份 lock。"""
+        with self.builder(package_false=True) as build:
+            self.assertEqual(build._cmd_build()[:2], ["rm -rf uv.lock", "uv lock --prerelease=allow"])
+
+    def test_virtual_project_is_not_published(self):
+        with self.builder(package_false=True) as build:
+            with patch.object(UVBuild, "_export_publish_credentials") as export:
+                self.assertEqual(build._cmd_publish(), [])
+            # 没东西要上传就不该把 ~/.pypirc 的凭据导出到环境变量
+            export.assert_not_called()
+
+    def test_virtual_project_skips_the_wheel_install_check(self):
+        """没有 wheel 时那个 glob 会原样传给 uv 并报找不到文件。"""
+        with self.builder(package_false=True) as build:
+            self.assertEqual(build._cmd_install(), [])
+
+    def test_virtual_project_has_no_published_distribution(self):
+        with self.builder(package_false=True) as build:
+            self.assertEqual(build._published_distributions(), {})
+
+    def test_virtual_root_still_builds_its_subpackages(self):
+        """虚拟根 + extbuild 子包: 跳过的只是根, 子包该发照发。"""
+        with self.builder(package_false=True, extra_pkg="child") as build:
+            built = [c for c in build._cmd_build() if c.startswith("uv build")]
+            self.assertEqual(len(built), 1)
+            self.assertIn("extbuild/child", built[0])
+            self.assertEqual(list(build._published_distributions()), ["child"])
+            self.assertEqual(build._cmd_install(), ["uv pip install dist/funbuild/*/*.whl"])
+
+    def test_normal_project_is_unaffected(self):
+        with self.builder(package_false=False) as build:
+            self.assertTrue([c for c in build._cmd_build() if c.startswith("uv build")])
+            self.assertEqual(build._cmd_install(), ["uv pip install dist/funbuild/*/*.whl"])
+            self.assertEqual(list(build._published_distributions()), ["pkg"])
+
+    def test_version_sync_still_covers_the_virtual_project(self):
+        """跳过构建不等于跳过版本号: 共享版本必须照样写进它的 pyproject。"""
+        with self.builder(package_false=True) as build:
+            build.version = "1.1.104"
+            build._write_version()
+            self.assertIn('version = "1.1.104"', Path("pyproject.toml").read_text(encoding="utf-8"))
+
+    def test_unparsable_manifest_is_not_silently_skipped(self):
+        """清单读不出来时按可构建处理: 真正的解析错误该由 _write_version 报出来,
+        不该在这里被转成「静默跳过构建」。"""
+        with tempfile.TemporaryDirectory() as temp:
+            bad = Path(temp) / "pyproject.toml"
+            bad.write_text("[project\nname =", encoding="utf-8")
+            with patch("funbuild.core.uv_build.logger.warning") as warning:
+                self.assertFalse(UVBuild._is_virtual_project(str(bad)))
+            self.assertTrue(warning.called)
