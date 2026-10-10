@@ -38,19 +38,19 @@ def funbuild() -> None:
             str | None,
             typer.Option("--version", help="指定目标版本号; 不传则沿用旧逻辑自动递增当前版本号"),
         ] = None,
-    ):
+    ) -> None:
         """升级版本"""
         builder().upgrade(version=version)
 
     @cli.command("latest-deps")
-    def latest_deps():
+    def latest_deps() -> None:
         """把 latest-packages 里的依赖下界抬到最新版 (不构建、不发布)"""
         # build 里这一步跑在 publish 之前、改动不可见, 单独给个入口才能在真正
         # 发版之前确认配置写对了、私有 index 也解析得通。
         builder()._sync_latest_dependencies()
 
     @cli.command()
-    def pull():
+    def pull() -> None:
         """拉取代码"""
         builder().pull()
 
@@ -67,7 +67,7 @@ def funbuild() -> None:
         batch_size: typing.Annotated[
             int, typer.Option("--batch-size", min=1, help="每个提交包含的最大修改文件数")
         ] = 20,
-    ):
+    ) -> None:
         """推送代码"""
         if target not in (None, "all"):
             typer.secho(f'错误: push 的位置参数只接受 "all", 收到 {target!r}', fg=typer.colors.RED, err=True)
@@ -79,7 +79,7 @@ def funbuild() -> None:
             builder().push(message, batch_size=batch_size)
 
     @cli.command()
-    def install():
+    def install() -> None:
         """安装包"""
         builder().install()
 
@@ -93,7 +93,7 @@ def funbuild() -> None:
             str | None,
             typer.Option("--version", help="指定发布版本号; 不传则沿用旧逻辑自动递增当前版本号"),
         ] = None,
-    ):
+    ) -> None:
         """构建发布"""
         # 提醒放在最前面, 这样不规范的信息在终端上看得见, 而不是被发布日志冲掉
         check_message(message)
@@ -103,17 +103,17 @@ def funbuild() -> None:
     cli.command("release", help="构建发布 (build 的别名)")(build)
 
     @cli.command()
-    def clean_history():
+    def clean_history() -> None:
         """清理历史"""
         builder().clean_history()
 
     @cli.command()
-    def clean():
+    def clean() -> None:
         """清理缓存"""
         builder().clean()
 
     @cli.command()
-    def tag():
+    def tag() -> None:
         """创建标签"""
         builder().tags()
 
