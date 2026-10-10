@@ -242,7 +242,7 @@ def _warn_if_unconventional(message: str) -> None:
         logger.warning(f"提交信息不符合约定 ({COMMIT_MESSAGE_HINT}), 按原样保留: {message!r}")
 
 
-def aicommits_commit(cwd=None, fallback: str = DEFAULT_COMMIT_MESSAGE) -> bool:
+def aicommits_commit(cwd: str | None = None, fallback: str = DEFAULT_COMMIT_MESSAGE) -> bool:
     """让 aicommits 依据暂存内容生成信息并提交, 成功返回 True。
 
     只在调用方没有指定 commit 信息时才该走这条路: aicommits 无视外部传入的信息。
