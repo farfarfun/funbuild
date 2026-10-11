@@ -24,14 +24,14 @@ def stub_aicommits(bin_dir):
     script = bin_dir / "aicommits"
     script.write_text(f'#!/bin/sh\ngit commit -q -m "{AICOMMITS_MESSAGE}"\n', encoding="utf-8")
     script.chmod(0o755)
-    util._aicommits_available.cache_clear()
+    util.reset_aicommits_state()
     original = os.environ["PATH"]
     os.environ["PATH"] = f"{bin_dir}{os.pathsep}{original}"
     try:
         yield
     finally:
         os.environ["PATH"] = original
-        util._aicommits_available.cache_clear()
+        util.reset_aicommits_state()
 
 
 class PushTest(unittest.TestCase):

@@ -7,11 +7,13 @@ import contextlib
 import importlib.metadata
 import os
 import shlex
+import subprocess
 import sys
 import tempfile
 import unittest
 import warnings
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, call, patch
 
 import tomlkit
@@ -408,8 +410,8 @@ class AicommitsProbeTest(unittest.TestCase):
     """aicommits 不存在时只探测一次, 不应每批重试。"""
 
     def setUp(self):
-        util._aicommits_available.cache_clear()
-        self.addCleanup(util._aicommits_available.cache_clear)
+        util.reset_aicommits_state()
+        self.addCleanup(util.reset_aicommits_state)
 
     def test_missing_cli_probed_once(self):
         with patch("funbuild.core.util.shutil.which", return_value=None) as which:
@@ -422,15 +424,26 @@ class AicommitsProbeTest(unittest.TestCase):
         run.assert_not_called()
 
     def test_available_cli_is_invoked(self):
-        # 依次是: 查暂存(有) / aicommits 输出 / 再查暂存(已提交) / 读回提交信息
+        # run_shell 依次是: 查暂存(有) / 再查暂存(已提交) / 读回提交信息
         with patch("funbuild.core.util.shutil.which", return_value="/usr/bin/aicommits"):
-            with patch(
-                "funbuild.core.util.run_shell", side_effect=["1", "feat: 自动生成信息", "0", "feat: 自动生成信息"]
-            ) as run_shell:
-                with patch("funbuild.core.util.run_checked") as run:
-                    self.assertTrue(util.aicommits_commit())
-        self.assertIn(util.AICOMMITS_COMMAND, [c.args[0] for c in run_shell.call_args_list])
+            with patch("funbuild.core.util.run_shell", side_effect=["1", "0", "feat: 自动生成信息"]):
+                with patch("funbuild.core.util._run_aicommits", return_value=(0, "feat: 自动生成信息", "")) as called:
+                    with patch("funbuild.core.util.run_checked") as run:
+                        self.assertTrue(util.aicommits_commit())
+        called.assert_called_once_with(None)
         run.assert_not_called()
+
+    def test_command_is_run_with_stderr_captured(self):
+        """失败原因只在 stderr 里 (funshell.run_shell 只给 stdout, 丢退出码和 stderr),
+        所以这条命令必须自己捕获两路输出。"""
+        with patch("funbuild.core.util.subprocess.run") as run:
+            run.return_value = SimpleNamespace(returncode=1, stdout="", stderr="boom")
+            self.assertEqual(util._run_aicommits("/repo"), (1, "", "boom"))
+        kwargs = run.call_args.kwargs
+        self.assertEqual(run.call_args.args[0], util.AICOMMITS_COMMAND)
+        self.assertTrue(kwargs["capture_output"])
+        self.assertEqual(kwargs["cwd"], "/repo")
+        self.assertEqual(kwargs["timeout"], util.AICOMMITS_TIMEOUT)
 
     def test_conventional_format_is_requested(self):
         """aicommits 的默认 plain 模式只输出纯描述, 生成的信息 100% 缺 `<类型>:` 前缀;
@@ -446,18 +459,71 @@ class AicommitsProbeTest(unittest.TestCase):
         打到 stdout 就退出 (退出码 0, 暂存原地不动)。funbuild 必须接住这条信息自己
         提交 —— 否则标题全成了兜底的「更新项目文件」。"""
         with patch("funbuild.core.util.shutil.which", return_value="/usr/bin/aicommits"):
-            with patch("funbuild.core.util.run_shell", side_effect=["1", "feat: 自动生成信息\n", "1"]):
-                with patch("funbuild.core.util.run_checked") as run:
-                    self.assertTrue(util.aicommits_commit())
+            with patch("funbuild.core.util.run_shell", side_effect=["1", "1"]):
+                with patch("funbuild.core.util._run_aicommits", return_value=(0, "feat: 自动生成信息\n", "")):
+                    with patch("funbuild.core.util.run_checked") as run:
+                        self.assertTrue(util.aicommits_commit())
         run.assert_called_once_with(["git commit -m 'feat: 自动生成信息'"], cwd=None)
 
     def test_unconventional_generated_message_is_still_used(self):
         """不合约定也照原样提交, 不退回兜底信息。"""
         with patch("funbuild.core.util.shutil.which", return_value="/usr/bin/aicommits"):
-            with patch("funbuild.core.util.run_shell", side_effect=["1", "放开提交信息校验\n", "1"]):
-                with patch("funbuild.core.util.run_checked") as run:
-                    self.assertTrue(util.aicommits_commit())
+            with patch("funbuild.core.util.run_shell", side_effect=["1", "1"]):
+                with patch("funbuild.core.util._run_aicommits", return_value=(0, "放开提交信息校验\n", "")):
+                    with patch("funbuild.core.util.run_checked") as run:
+                        self.assertTrue(util.aicommits_commit())
         run.assert_called_once_with(["git commit -m '放开提交信息校验'"], cwd=None)
+
+
+class AicommitsFailureTest(unittest.TestCase):
+    """回归: 模型调用失败 (网关 404、密钥失效) 时, 原因全在 stderr 而 stdout 是空的。
+    funbuild 原先只看 stdout, 日志于是只有一句「输出里也取不到可用信息: ''」,
+    既说不出哪儿错了, 还每批都去白等一次超时。"""
+
+    STDERR = (
+        "✖ The requested resource was not found. (request_id: 383a8f)\n"
+        "    at file:///usr/lib/node_modules/aicommits/dist/cli.mjs:157:17897\n"
+        "    at async postToApi (file:///usr/lib/node_modules/aicommits/dist/cli.mjs:157:13867)\n"
+        "\n    aicommits v4.2.0\n"
+        "    https://github.com/Nutlope/aicommits/issues/new/choose\n"
+    )
+
+    def setUp(self):
+        util.reset_aicommits_state()
+        self.addCleanup(util.reset_aicommits_state)
+
+    def test_reason_comes_from_stderr(self):
+        reason = util._aicommits_failure_reason(self.STDERR, "", 1)
+        self.assertEqual(reason, "The requested resource was not found. (request_id: 383a8f)")
+
+    def test_reason_falls_back_to_exit_code_when_stderr_empty(self):
+        self.assertEqual(util._aicommits_failure_reason("", "", 1), "exit=1, stdout=''")
+
+    def test_failure_is_logged_with_reason(self):
+        with patch("funbuild.core.util.shutil.which", return_value="/usr/bin/aicommits"):
+            with patch("funbuild.core.util.run_shell", side_effect=["1", "1"]):
+                with patch("funbuild.core.util._run_aicommits", return_value=(1, "", self.STDERR)):
+                    with patch("funbuild.core.util.logger.warning") as warn:
+                        self.assertFalse(util.aicommits_commit())
+        logged = " ".join(str(c.args[0]) for c in warn.call_args_list)
+        self.assertIn("The requested resource was not found.", logged)
+
+    def test_broken_cli_is_not_retried_per_batch(self):
+        with patch("funbuild.core.util.shutil.which", return_value="/usr/bin/aicommits"):
+            with patch("funbuild.core.util.run_shell", return_value="1"):
+                with patch("funbuild.core.util._run_aicommits", return_value=(1, "", self.STDERR)) as called:
+                    for _ in range(5):
+                        self.assertFalse(util.aicommits_commit())
+        self.assertEqual(called.call_count, 1, "失败多是配置级的, 本轮不该每批重试")
+
+    def test_timeout_is_not_retried_per_batch(self):
+        timeout = subprocess.TimeoutExpired(util.AICOMMITS_COMMAND, util.AICOMMITS_TIMEOUT)
+        with patch("funbuild.core.util.shutil.which", return_value="/usr/bin/aicommits"):
+            with patch("funbuild.core.util.run_shell", return_value="1"):
+                with patch("funbuild.core.util._run_aicommits", side_effect=timeout) as called:
+                    for _ in range(3):
+                        self.assertFalse(util.aicommits_commit())
+        self.assertEqual(called.call_count, 1)
 
 
 class SanitizeCommitMessageTest(unittest.TestCase):

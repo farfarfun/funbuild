@@ -4,6 +4,7 @@ import os
 import re
 import shlex
 import shutil
+import subprocess
 from functools import lru_cache
 from typing import Any
 
@@ -171,6 +172,11 @@ _AICOMMITS_PROMPT = (
     f"{', '.join(COMMIT_MESSAGE_TYPES)}. Never use any other type."
 )
 AICOMMITS_COMMAND = shlex.join(["aicommits", "--yes", "--type", "conventional", "--prompt", _AICOMMITS_PROMPT])
+AICOMMITS_TIMEOUT = 180
+
+# 调用失败多是配置级的 (模型下线、密钥失效、网关不通), 下一批只会再等一次超时、
+# 再刷一条同样的错, 所以本进程内记下失败就不再重试。
+_aicommits_failure: dict[str, str] = {}
 
 
 @lru_cache(maxsize=1)
@@ -180,6 +186,44 @@ def _aicommits_available() -> bool:
         return True
     logger.warning("aicommits not found, fallback to default commit message")
     return False
+
+
+def reset_aicommits_state() -> None:
+    """清掉 aicommits 的可用性探测与失败记录。"""
+    _aicommits_failure.clear()
+    _aicommits_available.cache_clear()
+
+
+# aicommits 的报错形如 `✖ <原因>`, 后面跟着整段 node 栈, 只有带原因那行有用。
+_AICOMMITS_MARK_RE = re.compile(r"^[\s✔✖⚠×x]+", re.IGNORECASE)
+
+
+def _aicommits_failure_reason(stderr: str, stdout: str, code: int) -> str:
+    """从 aicommits 的输出里挑出一句能说明失败原因的话。"""
+    for raw in (stderr or "").splitlines():
+        line = _AICOMMITS_MARK_RE.sub("", raw).strip()
+        if line and not line.startswith("at ") and not line.startswith("https://"):
+            return line
+    return f"exit={code}, stdout={(stdout or '').strip()!r}"
+
+
+def _run_aicommits(cwd: str | None) -> tuple[int, str, str]:
+    """跑 aicommits, 返回 (退出码, stdout, stderr)。
+
+    不走 funshell.run_shell: 它只返回 stdout, 退出码和 stderr 全丢。而 aicommits
+    失败时 stdout 恰恰是空的, 原因 (模型 404、配额耗尽、密钥失效) 只在 stderr 里。
+    """
+    result = subprocess.run(
+        AICOMMITS_COMMAND,
+        shell=True,
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+        cwd=cwd,
+        timeout=AICOMMITS_TIMEOUT,
+        check=False,
+    )
+    return result.returncode, result.stdout or "", result.stderr or ""
 
 
 def has_staged_changes(cwd: str | None = None) -> bool:
@@ -254,12 +298,17 @@ def aicommits_commit(cwd: str | None = None, fallback: str = DEFAULT_COMMIT_MESS
     if not has_staged_changes(cwd):
         logger.warning("No staged changes")
         return False
-    if not _aicommits_available():
+    if not _aicommits_available() or _aicommits_failure:
         return False
 
     try:
-        output = run_shell(AICOMMITS_COMMAND, printf=False, cwd=cwd, timeout=180)
+        code, output, errors = _run_aicommits(cwd)
+    except subprocess.TimeoutExpired:
+        _aicommits_failure["reason"] = f"{AICOMMITS_TIMEOUT}s 未返回"
+        logger.warning(f"aicommits {AICOMMITS_TIMEOUT}s 未返回, 本次改用兜底信息 {fallback!r}")
+        return False
     except Exception as e:
+        _aicommits_failure["reason"] = str(e)
         logger.error(f"aicommits commit failed: {e}")
         return False
 
@@ -269,7 +318,10 @@ def aicommits_commit(cwd: str | None = None, fallback: str = DEFAULT_COMMIT_MESS
 
     message = sanitize_commit_message(output)
     if not message:
-        logger.warning(f"aicommits 没有提交, 输出里也取不到可用信息: {output.strip()!r}")
+        reason = _aicommits_failure_reason(errors, output, code)
+        _aicommits_failure["reason"] = reason
+        logger.warning(f"aicommits 没能生成信息, 本次改用兜底信息 {fallback!r}; 原因: {reason}")
+        logger.warning("多为 ~/.aicommits 里的模型/密钥/地址失效, 可用 `aicommits config get OPENAI_MODEL` 核对")
         return False
     _warn_if_unconventional(message)
     run_checked([shlex.join(["git", "commit", "-m", message])], cwd=cwd)
