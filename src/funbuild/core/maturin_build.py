@@ -41,17 +41,45 @@ class MaturinBuild(UVBuild):
         declared = isinstance(backend, str) and backend.strip().startswith("maturin")
         return declared or isinstance(deep_get(config, "tool", "maturin"), dict)
 
-    def _cargo_manifest_paths(self) -> list[str]:
-        """需要同步版本号的 Cargo.toml。
+    def _cargo_manifest_path(self, pkg_dir: str) -> str:
+        """`pkg_dir` 下 maturin 要用的 Cargo.toml。
 
-        只认 `[tool.maturin].manifest-path` 指向的那个 (默认仓库根)。workspace
-        成员用的是 `version.workspace = true`, 跟着根清单走, 不用逐个改。
+        读 `[tool.maturin].manifest-path` (相对 pkg_dir 解析), 默认 pkg_dir/Cargo.toml。
+        虚拟工作区 (根目录只有 `[workspace]`、没有 `[package]`) 必须显式配这一项,
+        否则 maturin 会对着根清单报 `missing field package`。
         """
-        manifest = deep_get(load_toml(self.toml_paths[0]), "tool", "maturin", "manifest-path")
-        path = manifest.strip() if isinstance(manifest, str) and manifest.strip() else "Cargo.toml"
-        return [path] if os.path.exists(path) else []
+        toml_path = os.path.join(pkg_dir, "pyproject.toml")
+        manifest = None
+        if os.path.exists(toml_path):
+            manifest = deep_get(load_toml(toml_path), "tool", "maturin", "manifest-path")
+        rel = manifest.strip() if isinstance(manifest, str) and manifest.strip() else "Cargo.toml"
+        return os.path.normpath(os.path.join(pkg_dir, rel))
 
-    def _sync_cargo_version(self, path: str) -> None:
+    def _cargo_manifest_paths(self) -> list[str]:
+        """需要同步版本号的 Cargo.toml, 从扩展 crate 的清单一路回溯到包目录。
+
+        回溯是必须的: 扩展 crate 一般写 `version.workspace = true`, 字面量版本号
+        在 workspace 根的 `[workspace.package]` 里。只改 crate 清单会一个字都改不动,
+        而 pyproject 那边的版本号已经写进去了 —— wheel 和 crate 就此分叉。
+
+        只走**祖先**目录, 不扫整个 workspace: 兄弟 crate 可能有意维护独立的版本线
+        (funget-core 就是发到 crates.io 的独立 0.x), 不能被包版本号冲掉。
+        """
+        paths: list[str] = []
+        for pkg_dir in self._buildable_pkg_dirs():
+            stop = os.path.normpath(pkg_dir)
+            directory = os.path.dirname(self._cargo_manifest_path(pkg_dir)) or "."
+            while True:
+                candidate = os.path.normpath(os.path.join(directory, "Cargo.toml"))
+                if os.path.exists(candidate) and candidate not in paths:
+                    paths.append(candidate)
+                parent = os.path.dirname(directory) or "."
+                if os.path.normpath(directory) == stop or parent == directory:
+                    break
+                directory = parent
+        return paths
+
+    def _sync_cargo_version(self, path: str) -> bool:
         """把 `[workspace.package]` / `[package]` 下的 version 改成当前版本。
 
         手写正则而不是 tomlkit: Cargo.toml 是人维护的文件, 里面的注释和排版有说明
@@ -79,20 +107,25 @@ class MaturinBuild(UVBuild):
             out.append(replaced)
 
         if not changed:
-            # 不静默放过: 版本不同步的后果是 wheel 里的 metadata 和 crate 版本对不上,
-            # 而这个错误只有在发布之后才会被发现。
-            logger.warning(f"{path} 里没有找到可同步的 version 字段, 版本号未写入")
-            return
+            # 这里不警告: 单个清单没有字面量 version 是正常的 (`version.workspace = true`),
+            # 真正该报的是整条回溯链上一个都没改到 —— 由 `_write_version` 统一判断。
+            return False
 
         with open(path, "w", encoding="utf-8") as file:
             file.write("".join(out))
         logger.info(f"同步版本号到 {path}: {self.version}")
+        return True
 
     def _write_version(self) -> None:
         """写 pyproject 之外, 还要写 Cargo.toml。"""
         super()._write_version()
-        for path in self._cargo_manifest_paths():
-            self._sync_cargo_version(path)
+        paths = self._cargo_manifest_paths()
+        # 不用 any(generator): 那样会在第一个成功的清单上短路, 后面的就不写了。
+        synced = [self._sync_cargo_version(path) for path in paths]
+        if paths and not any(synced):
+            # 不静默放过: 版本不同步的后果是 wheel 里的 metadata 和 crate 版本对不上,
+            # 而这个错误只有在发布之后才会被发现。
+            logger.warning(f"{', '.join(paths)} 里都没有找到可同步的 version 字段, 版本号未写入")
 
     def _cmd_build(self) -> list[str]:
         """构建命令: maturin build --release。
@@ -119,7 +152,7 @@ class MaturinBuild(UVBuild):
                         "build",
                         "--release",
                         "--manifest-path",
-                        shlex.quote(os.path.join(pkg_dir, "Cargo.toml")),
+                        shlex.quote(self._cargo_manifest_path(pkg_dir)),
                         "--out",
                         shlex.quote(out_dir),
                     ]
