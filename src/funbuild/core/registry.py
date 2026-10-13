@@ -6,6 +6,7 @@ from .base import git_repo_root
 from .empty_build import EmptyBuild
 from .flutter_build import FlutterBuild
 from .hybrid import UvNpmHybridBuild
+from .maturin_build import MaturinBuild
 from .npm_frontend import NpmFrontendBuild
 from .poetry_build import PoetryBuild
 from .pypi_build import PypiBuild
@@ -18,6 +19,7 @@ from .version_file_build import VersionFileBuild
 def get_build() -> (
     SubmoduleWorkspaceBuild
     | UvNpmHybridBuild
+    | MaturinBuild
     | UVBuild
     | PoetryBuild
     | PypiBuild
@@ -43,6 +45,7 @@ def get_build() -> (
     builders = [
         SubmoduleWorkspaceBuild,
         UvNpmHybridBuild,
+        MaturinBuild,
         UVBuild,
         PoetryBuild,
         PypiBuild,
