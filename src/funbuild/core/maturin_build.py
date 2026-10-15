@@ -1,19 +1,11 @@
 #!/usr/bin/python3
 
 import os
-import re
 import shlex
 
+from .cargo_version import sync_cargo_version
 from .util import deep_get, load_toml, logger
 from .uv_build import UVBuild, _uv_bundle_out_dir_abs
-
-# `version = "1.2.3"` —— 只认行首 (允许缩进) 的 version 键, 避免误伤依赖表里的
-# `foo = { version = "1" }`。
-_CARGO_VERSION_LINE = re.compile(r'^(?P<prefix>\s*version\s*=\s*")(?P<version>[^"]*)(?P<suffix>")\s*$', re.MULTILINE)
-
-# 只在这两个表下改 version: workspace 的 `[workspace.package]` 和单 crate 的
-# `[package]`。`[dependencies]` 等表里的 version 是依赖约束, 不能跟着包版本走。
-_CARGO_VERSION_SECTIONS = ("[workspace.package]", "[package]")
 
 
 class MaturinBuild(UVBuild):
@@ -80,41 +72,12 @@ class MaturinBuild(UVBuild):
         return paths
 
     def _sync_cargo_version(self, path: str) -> bool:
-        """把 `[workspace.package]` / `[package]` 下的 version 改成当前版本。
+        """把当前版本号写进这个 Cargo.toml。
 
-        手写正则而不是 tomlkit: Cargo.toml 是人维护的文件, 里面的注释和排版有说明
-        价值 (比如「为什么不开 gzip」那段), 不值得为了改一行版本号让格式化器重排。
+        实现在 `cargo_version`, 与 `CargoBuild` 共用同一套替换规则 —— 两边都得保证
+        版本号留在行首 `version = "..."` 的形状上, 不该有两份会漂移的实现。
         """
-        with open(path, encoding="utf-8") as file:
-            raw = file.read()
-
-        section: str | None = None
-        changed = 0
-        out: list[str] = []
-        for line in raw.splitlines(keepends=True):
-            stripped = line.strip()
-            if stripped.startswith("[") and stripped.endswith("]"):
-                section = stripped
-                out.append(line)
-                continue
-            if section not in _CARGO_VERSION_SECTIONS:
-                out.append(line)
-                continue
-            replaced, count = _CARGO_VERSION_LINE.subn(
-                lambda m: f"{m.group('prefix')}{self.version}{m.group('suffix')}\n", line
-            )
-            changed += count
-            out.append(replaced)
-
-        if not changed:
-            # 这里不警告: 单个清单没有字面量 version 是正常的 (`version.workspace = true`),
-            # 真正该报的是整条回溯链上一个都没改到 —— 由 `_write_version` 统一判断。
-            return False
-
-        with open(path, "w", encoding="utf-8") as file:
-            file.write("".join(out))
-        logger.info(f"同步版本号到 {path}: {self.version}")
-        return True
+        return sync_cargo_version(path, self.version)
 
     def _write_version(self) -> None:
         """写 pyproject 之外, 还要写 Cargo.toml。"""

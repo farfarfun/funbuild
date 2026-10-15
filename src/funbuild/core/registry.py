@@ -3,6 +3,7 @@
 import os
 
 from .base import git_repo_root
+from .cargo_build import CargoBuild
 from .empty_build import EmptyBuild
 from .flutter_build import FlutterBuild
 from .hybrid import UvNpmHybridBuild
@@ -25,6 +26,7 @@ def get_build() -> (
     | PypiBuild
     | FlutterBuild
     | NpmFrontendBuild
+    | CargoBuild
     | VersionFileBuild
     | EmptyBuild
 ):
@@ -40,6 +42,12 @@ def get_build() -> (
     # 不会误伤任何既有项目, 但一旦命中就该优先接管 (repo 自身没有可发布产物)。
     # FlutterBuild 排在 NpmFrontendBuild 之前 —— Flutter Web 项目常常也带一个
     # 仅供前端工具链使用的 package.json, 若 npm 先匹配会把它错认成纯前端项目。
+    # CargoBuild 排在所有 Python / 前端 / Flutter 类型之后 —— 它只认「根目录有
+    # Cargo.toml 且没有 pyproject.toml / package.json / pubspec.yaml」, 排在后面
+    # 是第二道保险: 哪天那个排除条件被放宽, Python 主体 + 附带一个 crate 的仓库仍然
+    # 由 UVBuild 接管, 而不是悄悄把版本主源换成 Cargo.toml —— 那种错要等到发出一个
+    # 版本号不对的版本才会被发现。但它必须排在 VersionFileBuild 之前: Rust 仓库里若另有
+    # 一个 VERSION 文件, 那只会是过期副本, 该由 Cargo.toml 说话。
     # VersionFileBuild 作为最后的真实回退, 只在所有清单类构建都不匹配时才接管。
     # EmptyBuild 永远匹配, 不参与循环, 只在循环走完且没有任何探测异常时才兜底。
     builders = [
@@ -51,6 +59,7 @@ def get_build() -> (
         PypiBuild,
         FlutterBuild,
         NpmFrontendBuild,
+        CargoBuild,
         VersionFileBuild,
     ]
     failures: list[str] = []

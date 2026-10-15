@@ -15,8 +15,8 @@ class EmptyBuild(BaseBuild):
     def check_type(self) -> bool:
         """兜底匹配。走到这里说明没有任何构建策略认领本仓库。"""
         logger.warning(
-            "未识别到版本清单 (pyproject.toml / package.json / VERSION / script/__version__.md), "
-            "回退到 EmptyBuild: upgrade、tag、build 将不会有任何效果"
+            "未识别到版本清单 (pyproject.toml / package.json / Cargo.toml / VERSION / "
+            "script/__version__.md), 回退到 EmptyBuild: upgrade、tag、build 将不会有任何效果"
         )
         return True
 

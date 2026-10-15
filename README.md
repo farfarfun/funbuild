@@ -8,7 +8,7 @@
 
 ## 特性
 
-- **多构建策略**：按仓库布局自动匹配 `UVBuild`、`PoetryBuild`、`PypiBuild`、`NpmFrontendBuild`、`UvNpmHybridBuild` 等实现，无需手写切换逻辑。
+- **多构建策略**：按仓库布局自动匹配 `UVBuild`、`PoetryBuild`、`PypiBuild`、`NpmFrontendBuild`、`UvNpmHybridBuild`、`CargoBuild` 等实现，无需手写切换逻辑。Python 之外也覆盖前端、Flutter 和纯 Rust 仓库。
 - **版本同步**：以根目录 `pyproject.toml` 的 `[project].version` 为主源时，可将版本同步到仓内其它带 `version` 的 `pyproject.toml`、`package.json` 与 `pubspec.yaml`（含子目录；`pubspec.yaml` 只同步 `major.minor.patch`，`+buildNumber` 保持不变）。
 - **依赖取最新**：在 `[tool.funbuild].latest-packages` 里列出的依赖，每次发版前会把版本下界抬到当时最新的已发布版本并写回 `pyproject.toml`，使其进入 wheel metadata，下游升级时必定带上最新的上游；名单里的包若还没写进 `dependencies`，会按最新版本补上。
 - **依赖与工具链**：内置对 **uv**、**ruff** 等工具的调用约定；日志通过 **farlog**，Shell 流程通过 **funshell**。
@@ -24,13 +24,15 @@
 | --- | --- | --- | --- |
 | 1 | `SubmoduleWorkspaceBuild` | 根目录同时存在 `apps/` 目录与 `scripts/funbuild.toml` | `<product>-dev` 编排仓库：`apps/` 下每个 app 是独立仓库的 git submodule，仓库自身没有可构建产物，见下方专节 |
 | 2 | `UvNpmHybridBuild` | 同时满足 `UVBuild` 与 `NpmFrontendBuild` 的判定条件 | 同一仓库里既是 UV 管理的 Python 包、又带前端 `package.json` 的混合项目（一条命令串联两侧构建/安装/发布） |
-| 3 | `UVBuild` | 根目录存在 `pyproject.toml` 且含 `[project]` 段 | 使用 `uv` / PEP 621 标准 `pyproject.toml` 的现代 Python 包（含 `extbuild/`、`exts/` 子包） |
-| 4 | `PoetryBuild` | `pyproject.toml` 存在且 `[tool.poetry].version` 有效 | 使用 Poetry 管理版本与依赖的 Python 项目 |
-| 5 | `PypiBuild` | 根目录存在 `script/__version__.md` | 早期遗留的 PyPI 发布脚本项目 |
-| 6 | `FlutterBuild` | `pubspec.yaml` 存在且 `dependencies.flutter.sdk == flutter` | Flutter 应用/插件项目 |
-| 7 | `NpmFrontendBuild` | 存在 `package.json`（含 `extbuild/` 等子目录的多包场景） | npm / pnpm / yarn 管理的纯前端项目 |
-| 8 | `VersionFileBuild` | 根目录存在纯文本 `VERSION` 文件 | 没有 `pyproject.toml` / `package.json`、无需真正构建的仓库（如 Shell 脚本仓库），仅借用 `upgrade` / `push` / `tag` 的版本与 Git 流程 |
-| 9 | `EmptyBuild` | 兜底，永远匹配 | 未识别到任何版本清单的仓库；`upgrade`、`build`、`tag` 均为空操作，仅保留提示日志 |
+| 3 | `MaturinBuild` | 满足 `UVBuild` 的条件，且 `build-system.build-backend` 以 `maturin` 开头或存在 `[tool.maturin]` | maturin (PyO3) 的 Rust + Python 扩展项目：版本号同时写进 `pyproject.toml` 和 `Cargo.toml`，wheel 由 tag 触发的 workflow 发布 |
+| 4 | `UVBuild` | 根目录存在 `pyproject.toml` 且含 `[project]` 段 | 使用 `uv` / PEP 621 标准 `pyproject.toml` 的现代 Python 包（含 `extbuild/`、`exts/` 子包） |
+| 5 | `PoetryBuild` | `pyproject.toml` 存在且 `[tool.poetry].version` 有效 | 使用 Poetry 管理版本与依赖的 Python 项目 |
+| 6 | `PypiBuild` | 根目录存在 `script/__version__.md` | 早期遗留的 PyPI 发布脚本项目 |
+| 7 | `FlutterBuild` | `pubspec.yaml` 存在且 `dependencies.flutter.sdk == flutter` | Flutter 应用/插件项目 |
+| 8 | `NpmFrontendBuild` | 存在 `package.json`（含 `extbuild/` 等子目录的多包场景） | npm / pnpm / yarn 管理的纯前端项目 |
+| 9 | `CargoBuild` | 根目录存在 `Cargo.toml`，且**没有** `pyproject.toml` / `package.json` / `pubspec.yaml` | 纯 Rust 仓库（产物是二进制而不是 Python 扩展），见下方专节 |
+| 10 | `VersionFileBuild` | 根目录存在纯文本 `VERSION` 文件 | 没有 `pyproject.toml` / `package.json`、无需真正构建的仓库（如 Shell 脚本仓库），仅借用 `upgrade` / `push` / `tag` 的版本与 Git 流程 |
+| 11 | `EmptyBuild` | 兜底，永远匹配 | 未识别到任何版本清单的仓库；`upgrade`、`build`、`tag` 均为空操作，仅保留提示日志 |
 
 ### `<product>-dev` 提交工作区 (`SubmoduleWorkspaceBuild`)
 
@@ -72,6 +74,27 @@ funbuild:
 ```
 
 > 默认发布走 `funpub upload`，仓库固定为 `funpackage`（阿里云 Packages generic 仓库）；账号、地址等凭据不经 funbuild 之手，需提前用 `funsecret write ... funpub aliyun generic funpackage ...` 配置好，`funbuild` 只负责拼装 `funpub upload` 命令，不接触任何凭据。如果你的团队使用别的制品仓库（自建 Nexus 等）或需要不同的 `repo-name`，在 `funbuild.publish` 里写你自己的上传命令即可完全接管这一步，同样能接入 `funbuild build` 的完整流水线。
+
+### 纯 Rust 项目 (`CargoBuild`)
+
+针对产物是二进制、发布交给 CI 的 Rust 仓库（有 `Cargo.toml`，没有 `pyproject.toml` / `package.json` / `pubspec.yaml`）。Rust + Python 的 maturin 扩展归 `MaturinBuild`，不走这里。
+
+**版本主源是 `Cargo.toml`。** `upgrade` 按 128 进制递增 `[package].version`（没有字面量版本时取 `[workspace.package].version`），改写时只替换行首那一行 `version = "..."`，注释与排版一律不动 —— 一来 `Cargo.toml` 是人维护的文件，二来按 tag 发布的 workflow 普遍用 `grep -m1 '^version = ' Cargo.toml` 取版本去和 tag 比对，版本必须留在这个形状上。`[dependencies]` 里的 version 约束不受影响。
+
+**`Cargo.lock` 会跟着一起更新**，命令是 `cargo update --workspace --offline`（离线失败时退回联网，仍带 `--workspace`）。`--workspace` 只重算工作区自己的包，已锁定的外部依赖一个都不升级，所以发版提交里就只有版本号那一行改动。这一步必须做：锁文件过期的话，`cargo publish --locked` 往往排在发布流程的最后，等它失败时 tag 早就推出去、Release 也建好了。
+
+默认命令：
+
+| 阶段 | 默认命令 |
+| --- | --- |
+| 构建 | `cargo fmt --all --check` + `cargo clippy --all-targets -- -D warnings` + `cargo test` |
+| 安装 | 无（不跑 `cargo install`，那会覆盖掉系统里按正式渠道装的那份） |
+| 发布 | 无 —— 见下 |
+| 清理 | 无（不碰 `target/`，清掉只会让下次发版多付一次冷构建） |
+
+构建阶段这三条是**发版前的关卡**，与仓库 CI 里的检查逐字一致：任一失败就中止，不会继续提交、打 tag、推送。原因是 tag 一推就触发真实发布，不能把编译不过的版本推上去。本地不自动 `cargo fmt --all` 改代码 —— 自动改完再提交，这道关卡就失去意义了。
+
+**不发布。** `cargo publish` 只应发生在一个地方，就是 `v*` tag 触发的 workflow（那里它排在装机验证之后，还会先探一次 crates.io）；crates.io 上的版本号是一次性的，同一版本只能发一次，yank 也只是不让新依赖解析到它。所以 `funbuild build` 在 Rust 仓库里做完「校验 → 提交 → 打 tag → 推送」就收手，剩下的交给 CI。
 
 ## 系统要求
 
@@ -292,6 +315,7 @@ funbuild build
 - **Python 项目**：在根目录 `pyproject.toml` 中维护 `[project].version` 与依赖；UV 类构建会读写该版本并同步到其它清单。可选的 `[tool.funbuild].latest-packages` 用于指定「每次发版取最新」的依赖，见上方「[让某个依赖每次发版都取最新](#让某个依赖每次发版都取最新)」。
 - **纯前端 / 子包**：在对应 `package.json` 中可使用 `funbuild` 字段（对象或 `true`）扩展行为（例如自定义 `build` 命令、`cleanDirs` 等），具体逻辑见源码中 `NpmFrontendBuild`。
 - **Flutter 项目**：在 `pubspec.yaml` 中可使用 `funbuild` 字段自定义 `build` / `install` / `publish` / `cleanDirs`，具体逻辑见源码中 `FlutterBuild`；详见上方「[打包支持的项目类型](#打包支持的项目类型)」里的 Flutter 小节。
+- **纯 Rust 项目**：版本主源是 `Cargo.toml` 的 `[package].version`（或 `[workspace.package].version`），没有可配置项 —— 发版前的三项检查与发布边界都是固定的，详见上方「[纯 Rust 项目 (`CargoBuild`)](#纯-rust-项目-cargobuild)」小节。
 
 构建类型的判定顺序见上方「[打包支持的项目类型](#打包支持的项目类型)」表格及 `src/funbuild/core/registry.py` 中的注册表 —— 构建类型由仓库布局自动探测，不需要也无法在配置里指定。`[tool.funbuild]` 目前只认 `latest-packages` 一个键。
 
