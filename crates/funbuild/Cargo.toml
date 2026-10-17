@@ -1,13 +1,19 @@
 [package]
 name = "funbuild"
+# 跟着 workspace 版本走，也就是和 PyPI 上的 funbuild 同号：一个版本号对应一次
+# release、一个 wheel、一个 crate，查「这个命令是哪次发的」时不用换算。
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 description = "Python / 前端 / Flutter / Rust 仓库的一键发版工具"
-publish = false
+readme = "README.md"
+keywords = ["release", "versioning", "packaging", "monorepo", "cli"]
+categories = ["development-tools", "command-line-utilities"]
 
+# 包名就是 funbuild，所以 `cargo install funbuild` 直接装出下面那个 funbuild 命令。
+# 库 target 同名，只为让 clap 解析的单元测试能 `use`。
 [lib]
 name = "funbuild"
 path = "src/lib.rs"

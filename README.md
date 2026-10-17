@@ -1,6 +1,7 @@
 # funbuild
 
 [![PyPI version](https://badge.fury.io/py/funbuild.svg)](https://badge.fury.io/py/funbuild)
+[![crates.io](https://img.shields.io/crates/v/funbuild.svg)](https://crates.io/crates/funbuild)
 [![Rust](https://img.shields.io/badge/rust-1.82+-orange.svg)](https://www.rust-lang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
@@ -114,6 +115,18 @@ funbuild:
 ```bash
 pip install funbuild
 ```
+
+wheel 里装的就是编译好的二进制，不需要 Rust 工具链。
+
+### 从 crates.io 安装
+
+```bash
+cargo install funbuild
+```
+
+和 PyPI 同号，装出来的是同一个命令。适合不想往 Python 环境里塞东西的场合——但注意
+Python 项目的构建与发布仍然要调 [uv](https://github.com/astral-sh/uv)，这条渠道不会
+帮你装它。
 
 ### 从源码安装
 
@@ -411,6 +424,7 @@ Python 侧只剩 `src/funbuild/tool`（历史遗留，与发版无关），用 `
 
 - [源码仓库](https://github.com/farfarfun/funbuild)
 - [PyPI：funbuild](https://pypi.org/project/funbuild/)
+- [crates.io：funbuild](https://crates.io/crates/funbuild) · [funbuild-core](https://crates.io/crates/funbuild-core)
 - [Issues](https://github.com/farfarfun/funbuild/issues)
 
 ## 维护者

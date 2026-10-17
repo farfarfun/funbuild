@@ -1,12 +1,17 @@
 [package]
 name = "funbuild-core"
-version.workspace = true
+# 工作区里唯一不跟 workspace 版本走的 crate：独立的 0.x 线。下面那些 `pub mod`
+# 之所以是 public，是为了让 CLI crate 跨 crate 调用，并不是按「公共 Rust API」
+# 设计的。0.x 下这些模块还能重构，1.x 就锁死了。
+version = "0.1.0"
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 description = "funbuild 的发版流程实现：构建类型探测、版本清单读写、命令编排"
-publish = false
+readme = "README.md"
+keywords = ["release", "versioning", "packaging", "monorepo"]
+categories = ["development-tools"]
 
 [dependencies]
 log.workspace = true

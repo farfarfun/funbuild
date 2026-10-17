@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.6.104]
+
+### 新增
+
+- 发布到 crates.io，多出 `cargo install funbuild` 这条渠道，和 PyPI 同号。两个 crate 都发：`funbuild`（CLI）和 `funbuild-core`（实现层）。
+- `funbuild-core` 走**独立的 0.x 版本线**（首发 0.1.0），不跟 workspace 版本走。它那些 `pub mod` 是为了给 CLI crate 跨 crate 调用才 public 的，不是按公共 Rust API 设计的，0.x 下还能重构。`MaturinBuild` 的版本同步只走祖先链（CLI crate → workspace 根），不会碰到它。
+- `release.yml` 加 crates job：走 crates.io 的 trusted publishing（OIDC 短期令牌，不存长期 token），发布前逐个查 crates.io，版本没变就跳过——所以重跑是幂等的。
+
+### 变更
+
+- 两个 crate 的 `publish = false` 去掉，补上 crates.io 必需的 metadata（readme / keywords / categories），并各写了一份 crate README。workspace 里对 `funbuild-core` 的 path 依赖补上 `version`——crates.io 不收纯 path 依赖。
+
+### 修复
+
+- 无。
+
+### 废弃
+
+- 无。
+
 ## [1.6.103]
 
 ### 变更
