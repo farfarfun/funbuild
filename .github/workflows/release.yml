@@ -230,8 +230,21 @@ jobs:
         env:
           VERSION: ${{ needs.check.outputs.version }}
         run: |
-          set -eux
+          set -eu
           python -m venv .verify
-          .verify/bin/pip install --only-binary funbuild "funbuild==${VERSION}"
+          # publish 刚完成几十秒，PyPI 的 simple index 带 CDN 缓存，pip 往往还看不到
+          # 新版本。重试而不是一装就断言——否则这个 job 的成败取决于 CDN 快慢。
+          for attempt in $(seq 1 20); do
+            if .verify/bin/pip install --only-binary funbuild "funbuild==${VERSION}"; then
+              break
+            fi
+            if [ "$attempt" = 20 ]; then
+              echo "::error::等了 5 分钟 PyPI 上仍看不到 ${VERSION}"
+              exit 1
+            fi
+            echo "PyPI 索引还没更新，15s 后重试 (${attempt}/20)"
+            sleep 15
+          done
+          set -x
           .verify/bin/funbuild --version | grep -F "${VERSION}"
           .verify/bin/python -c "from funbuild.tool.fastapi import ApiRoute"
