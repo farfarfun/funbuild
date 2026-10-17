@@ -1,6 +1,6 @@
 # Changelog
 
-## [未发布]
+## [1.6.103]
 
 ### 变更
 
@@ -11,6 +11,7 @@
 - 不再写文件日志。此前经 farlog 会在**每个被操作的仓库**里落一份 `logs/funbuild.log`，而那是未跟踪文件，`push` 的 `git add -A -f` 会把它一起提交上去。现在进度与告警只打到 stderr，用 `RUST_LOG` 调级别。
 - 改写清单时更保守了两处：用户写成多行的 `classifiers` 数组不再被压成一行；插入 `[project.urls]` 不再吃掉后一个表的前导空行。两者此前都是 tomlkit 整体赋值的副作用。
 - 发版方式随之改变：wheel 由 `v*` tag 触发的 GitHub Actions 构建并上传（PyPI trusted publishing），本地 `funbuild build` 只管到版本号、提交、打 tag 为止。此前这个仓库没有任何 CI，现在补上 `ci.yml`（fmt / clippy / test / 差分）与 `release.yml`。
+- v1.6.102 的 tag 推出去了但没发到 PyPI：`release.yml` 的 smoke test 用 `pip install --no-index` 装 wheel，撞上了 `uv` 这个运行时依赖（funget 能那么写是因为它零依赖）。改用 `--no-deps`，所以第一个真正发到 PyPI 的 Rust 版是 1.6.103。
 
 ### 新增
 

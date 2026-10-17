@@ -97,7 +97,9 @@ jobs:
         shell: bash
         run: |
           set -eux
-          python -m pip install --find-links dist --no-index funbuild
+          # --no-deps 是必须的：--no-index 之下装不到 uv 那个运行时依赖，而这一步
+          # 要验的是 wheel 本身（二进制 + Python 包），不是依赖解析。
+          python -m pip install --find-links dist --no-index --no-deps funbuild
           # 命令必须真的装出来：bin 模式把二进制放进 wheel 的 scripts/，
           # 这是整个分发方式的前提，哪天 [project.scripts] 被加回去这里会先红。
           funbuild --version
@@ -172,14 +174,18 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - uses: astral-sh/setup-uv@v5
 
+      # 照组织里的真实用法装一遍：pip 装进一个环境，然后敲那个命令。
+      # 这同时验了「wheel 的平台 tag 在这个 runner 上真的能匹配」——装不上会退化
+      # 到 sdist 现场编译，那样 pip 会去拉 Rust 工具链而不是直接失败，所以用
+      # --only-binary 把这条退路堵掉。
       - name: Install from PyPI and run it
         shell: bash
         env:
           VERSION: ${{ needs.check.outputs.version }}
         run: |
           set -eux
-          # --refresh 绕开 uv 的索引缓存：刚发布的版本常常被缓存挡在外面
-          uv tool install --refresh "funbuild==${VERSION}"
-          "$(uv tool dir)/funbuild/bin/funbuild" --version | grep -F "${VERSION}"
+          python -m venv .verify
+          .verify/bin/pip install --only-binary funbuild "funbuild==${VERSION}"
+          .verify/bin/funbuild --version | grep -F "${VERSION}"
+          .verify/bin/python -c "from funbuild.tool.fastapi import ApiRoute"

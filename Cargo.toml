@@ -3,7 +3,7 @@ members = ["crates/funbuild-core", "crates/funbuild"]
 resolver = "2"
 
 [workspace.package]
-version = "1.6.102"
+version = "1.6.103"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/farfarfun/funbuild"

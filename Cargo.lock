@@ -242,7 +242,7 @@ checksum = "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"
 
 [[package]]
 name = "funbuild"
-version = "1.6.102"
+version = "1.6.103"
 dependencies = [
  "clap",
  "env_logger",
@@ -253,7 +253,7 @@ dependencies = [
 
 [[package]]
 name = "funbuild-core"
-version = "1.6.102"
+version = "1.6.103"
 dependencies = [
  "log",
  "regex",
