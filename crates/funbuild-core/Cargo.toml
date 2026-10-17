@@ -1,0 +1,22 @@
+[package]
+name = "funbuild-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "funbuild 的发版流程实现：构建类型探测、版本清单读写、命令编排"
+publish = false
+
+[dependencies]
+log.workspace = true
+regex.workspace = true
+rust-ini.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_norway.workspace = true
+shell-escape.workspace = true
+tempfile.workspace = true
+thiserror.workspace = true
+toml_edit.workspace = true
+wait-timeout.workspace = true

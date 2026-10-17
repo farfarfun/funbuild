@@ -1,0 +1,26 @@
+[package]
+name = "funbuild"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Python / 前端 / Flutter / Rust 仓库的一键发版工具"
+publish = false
+
+[lib]
+name = "funbuild"
+path = "src/lib.rs"
+
+[[bin]]
+name = "funbuild"
+path = "src/main.rs"
+
+[dependencies]
+clap.workspace = true
+env_logger.workspace = true
+funbuild-core.workspace = true
+log.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
