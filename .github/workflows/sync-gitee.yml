@@ -1,0 +1,95 @@
+name: sync-gitee
+
+# 镜像到 Gitee 的 farfarfun/funbuild。
+#
+# 组织级的 action-daily 每两小时会把 farfarfun 下的所有仓库全量镜像一遍，用的也是
+# 这个 action。这儿还单独留一份，是因为那一遍没传 sync-releases，只搬 git refs ——
+# 而 funbuild 的实际交付物全在 Release 附件里：6 个平台的 CLI、4 个 tarball、两个
+# 架构的 .deb、SHA256SUMS。Gitee 上有 tag 没附件，等于没镜像。顺带把延迟从「最多
+# 两小时」压到「push 即跟」。
+#
+# 这一份是后补的。1.6.105 接上 apt / brew 之后，farfarfun/packages 渲染出的
+# Formula/funbuild.rb 里有一条指向 Gitee release 附件的 mirror，而 Gitee 上只有
+# tag 没有 release —— packages 的 verify-brew-gitee（掐掉 GitHub 从 Gitee 装一遍）
+# 因此一直红在 funbuild 这一行。funget 和 fundeploy 早各有一份，漏的是这里。
+
+on:
+  push:
+  # 发版那条线得等 Release 跑完才有附件。它用默认的 GITHUB_TOKEN 建 release，而
+  # token 建出来的东西按 GitHub 的规矩不会再触发 on: release —— 所以这里盯的是
+  # Release 这个 workflow 整个跑完，而不是 release 事件本身。
+  #
+  # 名字必须和 release.yml 的 `name:` 逐字一致。funbuild 的是大写的 Release
+  # （fundeploy 的是小写 release），写错了不报错，只是永远不触发。
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-gitee
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    # workflow_run 连失败的那次也会报 completed，别拿一次没发成的版去同步。
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      # SSH key 管的是 git，建 release、传附件走的是 REST API，要的是另一个凭据。
+      # 缺 token 时只降级掉 release 那一半，git 照搬——但要说出来，否则「Gitee 上
+      # 没有新版本」这种事只能等人来报。
+      - id: creds
+        name: 看看 Gitee 的凭据齐不齐
+        env:
+          GITEE_RSA_PRIVATE_KEY: ${{ secrets.GITEE_RSA_PRIVATE_KEY }}
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+        run: |
+          set -euo pipefail
+          [ -n "${GITEE_RSA_PRIVATE_KEY:-}" ] || {
+            echo "::error::没有 GITEE_RSA_PRIVATE_KEY，没法推到 Gitee。"
+            exit 1
+          }
+          if [ -n "${GITEE_TOKEN:-}" ]; then
+            echo "releases=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "releases=false" >>"$GITHUB_OUTPUT"
+            echo "::warning::没有 GITEE_TOKEN，只镜像 git，release 和附件不搬。"
+          fi
+
+      # 从 GitHub 的 runner 去 gitee.com 经常 30s 读超时，funmirror 对此不重试：
+      # detect 阶段问一次 Gitee 的 branch sha，超时就整个 job 红。接进来的时候三次
+      # 里红了两次，第三次什么都没改就过了。
+      #
+      # 所以失败一次不算数。重跑是安全的：release 按 tag 认，附件按名字加大小比，
+      # 已经一致的直接跳过，不一致的先删再传 —— 不会出现重复附件。Actions 没有
+      # 原生的 step 重试，只能把同一步写两遍。
+      - id: try1
+        name: 镜像到 Gitee
+        continue-on-error: true
+        uses: farfarfun-action/mirror-repo@v1.2.0
+        with:
+          src: github/${{ github.repository_owner }}
+          dst: gitee/${{ github.repository_owner }}
+          # 公开仓库匿名也读得到，但匿名限流按 runner 的出口 IP 算，是共用的。
+          src_token: ${{ github.token }}
+          dst_key: ${{ secrets.GITEE_RSA_PRIVATE_KEY }}
+          dst_token: ${{ secrets.GITEE_TOKEN }}
+          repo-names: ${{ github.event.repository.name }}
+          sync-releases: ${{ steps.creds.outputs.releases }}
+
+      - name: 镜像到 Gitee（再来一次）
+        if: steps.try1.outcome == 'failure'
+        uses: farfarfun-action/mirror-repo@v1.2.0
+        with:
+          src: github/${{ github.repository_owner }}
+          dst: gitee/${{ github.repository_owner }}
+          src_token: ${{ github.token }}
+          dst_key: ${{ secrets.GITEE_RSA_PRIVATE_KEY }}
+          dst_token: ${{ secrets.GITEE_TOKEN }}
+          repo-names: ${{ github.event.repository.name }}
+          sync-releases: ${{ steps.creds.outputs.releases }}
