@@ -124,9 +124,51 @@ wheel 里装的就是编译好的二进制，不需要 Rust 工具链。
 cargo install funbuild
 ```
 
-和 PyPI 同号，装出来的是同一个命令。适合不想往 Python 环境里塞东西的场合——但注意
-Python 项目的构建与发布仍然要调 [uv](https://github.com/astral-sh/uv)，这条渠道不会
-帮你装它。
+### apt（Debian / Ubuntu）
+
+funbuild 没有进 Debian 官方档案，所以要先加一次 farfarfun 的包源。加过之后
+`apt install` / `apt upgrade` 就和系统自带的包一样：
+
+```bash
+curl -fsSL https://farfarfun.github.io/packages/farfarfun.gpg \
+  | sudo tee /usr/share/keyrings/farfarfun.gpg >/dev/null
+echo "deb [signed-by=/usr/share/keyrings/farfarfun.gpg] https://farfarfun.github.io/packages/deb stable main" \
+  | sudo tee /etc/apt/sources.list.d/farfarfun.list
+sudo apt update && sudo apt install funbuild
+```
+
+amd64 和 arm64 都有。包里是静态链接的二进制（只 `Depends: git`），Debian 12 /
+Ubuntu 22.04 这类较老的发行版同样能装。源是组织共用的
+([farfarfun/packages](https://github.com/farfarfun/packages))，加一次之后别的
+farfarfun 工具也能直接 `apt install`。
+
+### Homebrew（macOS / Linux）
+
+同理，先加一次 tap：
+
+```bash
+brew tap farfarfun/packages https://github.com/farfarfun/packages
+brew trust farfarfun/packages
+brew install funbuild
+```
+
+`tap` 那行要把 URL 写出来，因为 `brew tap a/b` 默认去找 `github.com/a/homebrew-b`，
+而那个仓库同时还是 apt 源，不叫 `homebrew-packages`。`trust` 那行也不能省：Homebrew
+6.0 起第三方 tap 默认不可信。
+
+### 裸二进制
+
+[Release](https://github.com/farfarfun/funbuild/releases/latest) 里有各平台的独立
+二进制和 tarball，`SHA256SUMS` 覆盖全部附件：
+
+```bash
+curl -fsSLO https://github.com/farfarfun/funbuild/releases/latest/download/funbuild-x86_64-unknown-linux-gnu
+chmod +x funbuild-x86_64-unknown-linux-gnu && sudo mv $_ /usr/local/bin/funbuild
+```
+
+> **哪条渠道都不会帮你装 `uv`。** 发 Python 项目要用它（`uv build` / `uv publish` /
+> `uv lock`），pip 那条靠包依赖自动带上，其余四条得自己装一次。只发前端 / Flutter /
+> Rust 项目的话不需要。
 
 ### 从源码安装
 
@@ -368,20 +410,20 @@ funbuild build
 
 ## 仓库布局（摘要）
 
-Rust 看 `crates/`，Python 看 `src/`；根目录是纯虚拟 Cargo 工作区（没有 `[package]`）。
+Rust 看 `crates/`，Python 看 `src/`；根目录是纯虚拟 Cargo 工作区（没有 `[package]`），这样根目录下的 `cargo test` 照常可用。
 
 ```
 funbuild/
-├── crates/
-│   ├── funbuild-core/      # 全部逻辑
-│   │   └── src/
-│   │       ├── builders/   # 各构建类型与探测链
-│   │       ├── manifest/   # pyproject / package.json / pubspec / Cargo.toml 的读写
-│   │       ├── commit.rs   # 提交信息校验与 aicommits
-│   │       ├── git.rs      # 仓库状态
-│   │       ├── latest_deps.rs
-│   │       └── shell.rs    # 命令执行
-│   └── funbuild/           # clap CLI + [[bin]] funbuild
+├── crates/funbuild/        # 唯一的 crate：lib + [[bin]] funbuild
+│   └── src/
+│       ├── main.rs         # 入口，只转发退出码
+│       ├── lib.rs          # clap CLI；对外只暴露 run()，其余模块全私有
+│       ├── builders/       # 各构建类型与探测链
+│       ├── manifest/       # pyproject / package.json / pubspec / Cargo.toml 的读写
+│       ├── commit.rs       # 提交信息校验与 aicommits
+│       ├── git.rs          # 仓库状态
+│       ├── latest_deps.rs
+│       └── shell.rs        # 命令执行
 ├── src/funbuild/tool/      # 历史遗留的纯 Python 工具（与发版无关）
 ├── scripts/differential.py # 与改造前的 Python 版做行为差分
 ├── Cargo.toml
@@ -424,7 +466,7 @@ Python 侧只剩 `src/funbuild/tool`（历史遗留，与发版无关），用 `
 
 - [源码仓库](https://github.com/farfarfun/funbuild)
 - [PyPI：funbuild](https://pypi.org/project/funbuild/)
-- [crates.io：funbuild](https://crates.io/crates/funbuild) · [funbuild-core](https://crates.io/crates/funbuild-core)
+- [crates.io：funbuild](https://crates.io/crates/funbuild)
 - [Issues](https://github.com/farfarfun/funbuild/issues)
 
 ## 维护者

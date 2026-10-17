@@ -45,10 +45,6 @@ pub fn dig_bool(doc: &DocumentMut, path: &[&str]) -> Option<bool> {
     dig(doc, path)?.as_bool()
 }
 
-pub fn dig_table<'a>(doc: &'a DocumentMut, path: &[&str]) -> Option<&'a dyn TableLike> {
-    dig(doc, path)?.as_table_like()
-}
-
 /// 下钻取字符串数组，去空白后丢掉空项；不是数组时返回空。
 pub fn dig_string_list(doc: &DocumentMut, path: &[&str]) -> Vec<String> {
     let Some(array) = dig(doc, path).and_then(|item| item.as_array()) else {
@@ -63,7 +59,7 @@ pub fn dig_string_list(doc: &DocumentMut, path: &[&str]) -> Vec<String> {
         .collect()
 }
 
-/// 同 [`dig_table`] 但可改；任一层缺失或不是表时返回 None。
+/// 逐层下钻到一个可改的表；任一层缺失或不是表时返回 None。
 pub fn dig_table_mut<'a>(doc: &'a mut DocumentMut, path: &[&str]) -> Option<&'a mut dyn TableLike> {
     let mut current: &mut dyn TableLike = doc.as_table_mut();
     for key in path {

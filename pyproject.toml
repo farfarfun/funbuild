@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "funbuild"
-version = "1.6.104"
+version = "1.6.105"
 description = "Python / 前端 / Flutter / Rust 仓库的一键发版工具：版本递增、构建、发布、打 tag，自动适配 uv / Poetry / npm / Flutter / Cargo"
 readme = "README.md"
 requires-python = ">=3.12"

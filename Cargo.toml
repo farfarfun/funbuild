@@ -1,19 +1,15 @@
 [workspace]
-members = ["crates/funbuild-core", "crates/funbuild"]
+members = ["crates/funbuild"]
 resolver = "2"
 
 [workspace.package]
-version = "1.6.104"
+version = "1.6.105"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/farfarfun/funbuild"
 rust-version = "1.82"
 
 [workspace.dependencies]
-# 必须带 version：crates.io 不收 path 依赖，`cargo publish` 打包时会把 path 去掉、
-# 只留版本约束。缺这一项 `cargo publish -p funbuild` 直接报
-# 「all dependencies must have a version requirement specified when publishing」。
-funbuild-core = { path = "crates/funbuild-core", version = "0.1.0" }
 clap = { version = "4", features = ["derive"] }
 env_logger = { version = "0.11", default-features = false, features = ["humantime"] }
 log = "0.4"

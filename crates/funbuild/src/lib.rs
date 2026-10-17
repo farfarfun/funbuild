@@ -1,24 +1,39 @@
-//! funbuild 的命令行入口。
+//! funbuild：Python / 前端 / Flutter / Rust 仓库的一键发版工具。
 //!
-//! 只做参数解析与退出码，逻辑全在 funbuild-core。lib 与 bin 双 target 是为了让
-//! 下面那些解析测试能 `use`——bin-only 的 crate 测起来只能真去 fork 进程。
+//! 下面的模块一律私有：它们是实现，不是给外部调用的 Rust API，所以 lib 对外只有
+//! [`run`]。同一个 crate 内的测试照样能访问私有模块，不需要为了「可测」把它们
+//! pub 出去——那等于用 1.6.x 的 semver 给一堆内部结构背书。
+//!
+//! lib 与 bin 双 target 只为让解析测试能 `use`：bin-only 的 crate 测起来只能真去
+//! fork 进程。
+
+mod builders;
+mod commit;
+mod error;
+mod git;
+mod latest_deps;
+mod manifest;
+mod shell;
+mod util;
+mod version;
 
 use std::ffi::OsString;
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
-use funbuild_core::builders::{self, Builder};
-use funbuild_core::{git, Error, Result};
+
+use crate::builders::Builder;
+use crate::error::{Error, Result};
 
 #[derive(Parser, Debug)]
 #[command(name = "funbuild", version, about = "build tool for \"fun\"")]
-pub struct Cli {
+struct Cli {
     #[command(subcommand)]
-    pub command: Command,
+    command: Command,
 }
 
 #[derive(Subcommand, Debug)]
-pub enum Command {
+enum Command {
     /// 升级版本
     Upgrade {
         /// 指定目标版本号; 不传则沿用旧逻辑自动递增当前版本号
@@ -121,7 +136,10 @@ fn builder() -> Result<Box<dyn Builder>> {
     let cwd = std::env::current_dir()?;
     let root: PathBuf = git::repo_root(&cwd)?;
     std::env::set_current_dir(&root)?;
-    builders::detect(root)
+    let builder = builders::detect(root)?;
+    // 把判定结果说出来：「为什么我的仓库被当成这个类型」是真实的排查场景
+    log::info!("{}: {}", builder.ctx().name, builder.kind());
+    Ok(builder)
 }
 
 fn execute(command: Command) -> Result<()> {

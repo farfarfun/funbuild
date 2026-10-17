@@ -9,7 +9,12 @@
     {
       "path": "crates",
       "owner": "engineering",
-      "purpose": "Rust crates: funbuild-core 发版流程实现、funbuild CLI 二进制"
+      "purpose": "Rust crate: funbuild（CLI + 发版流程实现）"
+    },
+    {
+      "path": "packaging",
+      "owner": "engineering",
+      "purpose": "分发打包：build-deb.sh 和 packaging/README.md（apt / brew 两条渠道的分工）"
     },
     {
       "path": "logs",

@@ -1,10 +1,26 @@
 # Changelog
 
-## [未发布]
+## [1.6.105]
+
+### 新增
+
+- **多出 apt 和 brew 两条渠道**：`apt install funbuild` / `brew install funbuild`。release 现在还产出各平台的独立 CLI 二进制、tarball、`.deb` 和 `SHA256SUMS`，挂到 GitHub Release 上，由组织的共享包仓库 [farfarfun/packages](https://github.com/farfarfun/packages) 拉过去重建 APT 索引、渲染 Homebrew formula。整条路不需要任何 secret，也不需要跨仓库写权限——共享仓库是拉取模型。
+- `packaging/build-deb.sh` 与 `packaging/README.md`（五条渠道的分工、附件命名约定）。`.deb` 写 `Depends: git`：二进制是 musl 静态链接的、没有库依赖，但 funbuild 每条命令都要先 `git rev-parse` 找仓库根。`uv` 不写进依赖（Debian 没这个包），只在 Description 和 README 里说明。
+
+### 变更
+
+- **`funbuild-core` 并回 `funbuild`，不再是独立 crate。** 拆开是照搬 funget 照搬错了：funget 拆 core 是因为它有两个消费者（CLI 二进制 + PyO3 扩展），而 funbuild 走 bin 模式、没有扩展模块，core 只有 CLI 一个消费者，拆出来换到的全是开销——多一条版本线、多一次 crates.io 发布、path 依赖还得手写 version 约束。
+- 并进去之后模块全部私有，lib 对外只暴露 `run()`。此前 `funbuild-core` 那些 `pub mod` 发在 crates.io 上构成了 API 承诺，而它们根本不是给外部调用的；现在测试在同一个 crate 内，照样能访问私有模块。合并当场让两处真正的死代码浮了出来（`dig_table` 没人用，已删；`Builder::kind()` 接到了实际用途——探测完打一行「识别为哪个构建类型」，排查类型误判时要看的就是它）。
+- crates.io 上的 `funbuild-core` 0.1.0 留着不动（`funbuild` 1.6.104 依赖它，yank 会让那一版装不上），但不再更新。
 
 ### 修复
 
 - `release.yml` 的装机验证改成带重试：publish 完成后 PyPI 的 simple index 带 CDN 缓存，pip 往往几十秒内还看不到新版本，一装就断言会让这个 job 的成败取决于 CDN 快慢（1.6.104 发版时三个平台都这么红过一次）。现在每 15s 重试、最多 5 分钟。
+- README 里 apt 那段的 keyring 路径和源地址写错过（`trusted.gpg.d` 和缺 `/deb`），照 funget 的实际配置改正。
+
+### 废弃
+
+- 无。
 
 ## [1.6.104]
 

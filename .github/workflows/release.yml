@@ -126,18 +126,137 @@ jobs:
           name: wheels-sdist
           path: dist
 
+  # CLI 二进制单独构建：它的价值就在于「不用装 Python」，所以必须是能直接下载运行
+  # 的独立文件，而不是藏在 wheel 里。apt / brew 两条渠道也从这里取料。
+  binaries:
+    name: cli (${{ matrix.platform.target }})
+    runs-on: ${{ matrix.platform.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          # gnu 两个保留裸二进制：README 里 releases/latest/download/... 是公开地址。
+          - runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+          # musl 全静态：.deb 不写库依赖、Homebrew 的 Linux 瓶子、以及推荐给老发行版的
+          # tarball 都用它。funbuild 的依赖树是纯 Rust（没有 OpenSSL 之类），所以静态
+          # 构建不需要额外的 C 工具链。
+          - runner: ubuntu-24.04
+            target: x86_64-unknown-linux-musl
+            tarball: "yes"
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+            tarball: "yes"
+          - runner: macos-15-intel
+            target: x86_64-apple-darwin
+            tarball: "yes"
+          - runner: macos-latest
+            target: aarch64-apple-darwin
+            tarball: "yes"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.platform.target }}
+
+      - name: Build
+        run: cargo build --release --locked --package funbuild --target ${{ matrix.platform.target }}
+
+      - name: Package
+        shell: bash
+        # tarball 必须在这个 job 里打：upload-artifact 不保留文件权限，裸文件到了下游
+        # job 就是 0644 的，而 Homebrew 的 bin.install 和 .deb 都要可执行位。
+        # 里面的文件名得是裸 funbuild —— formula 和 build-deb.sh 都按裸名取。
+        run: |
+          set -eu
+          mkdir -p artifacts
+          if [ -n "${{ matrix.platform.tarball }}" ]; then
+            tar -czf "artifacts/funbuild-${{ matrix.platform.target }}.tar.gz" \
+              -C "target/${{ matrix.platform.target }}/release" funbuild
+          fi
+          mv "target/${{ matrix.platform.target }}/release/funbuild" \
+             "artifacts/funbuild-${{ matrix.platform.target }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cli-${{ matrix.platform.target }}
+          path: artifacts
+
+  # 打 .deb。不加 tag 条件，workflow_dispatch 时也跑：打包脚本坏了该在不发版的时候
+  # 就红，而不是等到真发版。
+  deb:
+    name: deb (${{ matrix.arch }})
+    needs: [check, binaries]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: amd64, target: x86_64-unknown-linux-musl }
+          - { arch: arm64, target: aarch64-unknown-linux-musl }
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: cli-${{ matrix.target }}
+          path: artifacts
+
+      # 跨架构打包没问题：dpkg-deb 只是把文件装进去，Architecture 是 control 里的
+      # 一个字段，不是构建属性。
+      - name: Build .deb
+        run: |
+          set -eu
+          sudo apt-get update -y && sudo apt-get install -y dpkg-dev
+          mkdir -p stage
+          tar -xzf "artifacts/funbuild-${{ matrix.target }}.tar.gz" -C stage
+          bash packaging/build-deb.sh stage/funbuild \
+            "${{ needs.check.outputs.version }}" "${{ matrix.arch }}" dist
+
+      - name: Inspect
+        run: |
+          dpkg-deb -I dist/*.deb
+          dpkg-deb -c dist/*.deb
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deb-${{ matrix.arch }}
+          path: dist/*.deb
+
   publish:
-    needs: [check, wheels, sdist]
+    needs: [check, wheels, sdist, binaries, deb]
     runs-on: ubuntu-24.04
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
-      # PyPI trusted publishing 要的 OIDC id-token
+      # contents: write 给下面那步往 GitHub Release 挂二进制
+      # id-token: write 是 PyPI trusted publishing 要的 OIDC id-token
+      contents: write
       id-token: write
     steps:
       - uses: actions/download-artifact@v4
         with:
           pattern: wheels-*
           path: dist
+          merge-multiple: true
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: cli-*
+          path: binaries
+          merge-multiple: true
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: deb-*
+          path: binaries
           merge-multiple: true
 
       - uses: astral-sh/setup-uv@v5
@@ -159,8 +278,26 @@ jobs:
             --check-url https://pypi.org/simple/ \
             dist/*
 
-  # crates.io 发布。和 PyPI 那边刻意分成两个 job：funbuild-core 走独立的 0.x 线，
-  # 多数 tag 根本不会动它，所以这个 job 的常态是「core 跳过、funbuild 发一个」。
+      # 校验和清单最后生成：它要覆盖上面所有附件，提前算就漏掉 .deb 和 tarball。
+      # farfarfun/packages 渲染 Homebrew formula 时按裸文件名在这里查 sha256。
+      - name: Generate SHA256SUMS
+        working-directory: binaries
+        # 必须是块标量：单行 run 是 YAML 的普通标量，空格后的 # 会被当成注释，命令
+        # 会从 sed 的分隔符处被截断。
+        #
+        # 用 ./* 而不是 *：文件名以 - 开头时后者会被 sha256sum 当成选项。多出来的
+        # ./ 前缀要去掉，formula 是按裸文件名查的。
+        run: |
+          sha256sum ./* | sed 's|\./||' >SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Attach the CLI binaries, tarballs and .deb to the release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: binaries/*
+          generate_release_notes: true
+
+  # crates.io 发布，和 PyPI 那边分成两个 job：两个 registry 的失败互不牵连。
   crates:
     needs: [check, wheels, sdist]
     runs-on: ubuntu-24.04
@@ -178,32 +315,26 @@ jobs:
         id: auth
 
       # cargo publish 没有 PyPI 的 --check-url 那种幂等开关，版本已存在就硬失败。
-      # 所以逐个先查 crates.io 再决定发不发：版本没变的 tag 跳过，上次发到一半挂了
-      # 重跑只补没发出去的那个。
-      #
-      # 顺序写死 funbuild-core 在前：funbuild 依赖它，crates.io 要求被依赖的版本在
-      # 上传时已经存在（cargo publish 自己会等索引同步，不用手动 sleep）。
+      # 所以先查 crates.io 再决定发不发：重跑一次发到一半挂掉的发版时需要这个。
       - name: Publish to crates.io
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
         run: |
           set -euo pipefail
-          for pkg in funbuild-core funbuild; do
-            version="$(cargo metadata --no-deps --format-version 1 \
-              | jq -r --arg p "$pkg" '.packages[] | select(.name == $p) | .version')"
-            if [ -z "${version}" ]; then
-              echo "::error::在 cargo metadata 里找不到 ${pkg}"
-              exit 1
-            fi
-            if curl -sfo /dev/null \
-                -H 'User-Agent: farfarfun-funbuild-release' \
-                "https://crates.io/api/v1/crates/${pkg}/${version}"; then
-              echo "${pkg} ${version} 已在 crates.io，跳过"
-              continue
-            fi
-            echo "发布 ${pkg} ${version}"
-            cargo publish -p "${pkg}" --locked
-          done
+          version="$(cargo metadata --no-deps --format-version 1 \
+            | jq -r '.packages[] | select(.name == "funbuild") | .version')"
+          if [ -z "${version}" ]; then
+            echo "::error::在 cargo metadata 里找不到 funbuild"
+            exit 1
+          fi
+          if curl -sfo /dev/null \
+              -H 'User-Agent: farfarfun-funbuild-release' \
+              "https://crates.io/api/v1/crates/funbuild/${version}"; then
+            echo "funbuild ${version} 已在 crates.io，跳过"
+            exit 0
+          fi
+          echo "发布 funbuild ${version}"
+          cargo publish -p funbuild --locked
 
   # 装机验证只能放在发布之后：下面装的是真的从 PyPI 下来的那一版。这一步红了说明
   # 刚发出去的版本装不上，得立刻补一个。
