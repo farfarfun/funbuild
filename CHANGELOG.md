@@ -1,5 +1,30 @@
 # Changelog
 
+## [未发布]
+
+### 变更
+
+- **实现改写为 Rust。** 逻辑全部搬到 `crates/funbuild-core`，CLI 在 `crates/funbuild`，`pip install funbuild` 装到 `<venv>/bin/funbuild` 的是一个编译好的二进制而不是 Python 脚本（maturin 的 `bindings = "bin"`）。CLI 的子命令、参数、默认值与行为逐条对齐改造前的 1.6.101，组织内 40 个调用点（`funbuild build` / `uv run funbuild` / `uvx funbuild "$@"`）不需要改动。
+- 运行时依赖从 6 个减到 1 个：只剩 `uv`（发版流程要调 `uv build` / `uv publish` / `uv lock`）。`tomlkit` / `pyyaml` / `typer-slim` / `farlog` / `funshell` 全部移除。
+- **破坏性变更：`funbuild.core` 整个包不再存在。** 它此前没有任何外部调用方（组织内零 import），只被 funbuild 自己的测试引用。`funbuild.tool.fastapi`（funtiktok 在用）原样保留为纯 Python 模块，与发版流程无关。需要从 Python 调发版流程的，改为起子进程调 `funbuild` 命令。
+- **破坏性变更：不再提供 Windows wheel。** funbuild 生成的是 POSIX shell 命令串（`rm -rf`、子 shell、`$(ls -t *.tgz)`），在 cmd.exe 下本来就跑不起来。wheel 矩阵为 Linux（gnu/musl × x86_64/aarch64）+ macOS（x86_64/aarch64），`py3-none-<platform>` 一个 wheel 覆盖所有 Python 版本。
+- 不再写文件日志。此前经 farlog 会在**每个被操作的仓库**里落一份 `logs/funbuild.log`，而那是未跟踪文件，`push` 的 `git add -A -f` 会把它一起提交上去。现在进度与告警只打到 stderr，用 `RUST_LOG` 调级别。
+- 改写清单时更保守了两处：用户写成多行的 `classifiers` 数组不再被压成一行；插入 `[project.urls]` 不再吃掉后一个表的前导空行。两者此前都是 tomlkit 整体赋值的副作用。
+- 发版方式随之改变：wheel 由 `v*` tag 触发的 GitHub Actions 构建并上传（PyPI trusted publishing），本地 `funbuild build` 只管到版本号、提交、打 tag 为止。此前这个仓库没有任何 CI，现在补上 `ci.yml`（fmt / clippy / test / 差分）与 `release.yml`。
+
+### 新增
+
+- `scripts/differential.py`：把新二进制和改造前的纯 Python 版放在同一批 fixture 仓库（uv / 多包 / 虚拟项目 / maturin / cargo / npm / flutter / VERSION / poetry / pypi-script / 编排仓库 / 混合仓 / 空仓，共 15 种）上各跑一次 `upgrade`，比对写进清单的数据。纯 Python 实现已删除，这是防行为漂移的唯一安全网，CI 里常跑。
+- 子进程调自己时（`push all` 分发到 submodule、编排仓库转发 `build --version`）改用 `current_exe()` 而不是 PATH 上的 `funbuild`，避免递归时解析到另一个版本。
+
+### 修复
+
+- 无。
+
+### 废弃
+
+- 无。
+
 ## [1.6.97]
 
 ### 新增

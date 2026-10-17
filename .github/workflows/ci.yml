@@ -1,0 +1,73 @@
+name: CI
+
+# 改造成 Rust 之前这个仓库没有任何 CI，测试只在本地跑过。funbuild 是全组织的发版
+# 入口，它坏掉就等于所有仓库都发不了版，所以和 release.yml 一起补上。
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust:
+    # 钉死 24.04 而不用 ubuntu-latest：该标签从 2026-10-19 起分批迁往 Ubuntu 26
+    # (actions/runner-images#14748)，差分这种依赖系统 Python 的 job 最容易被坑。
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace --locked
+
+  differential:
+    # 关键安全网：纯 Python 实现已经删掉，行为漂移就是全组织的发版事故。新二进制和
+    # 改造前的最后一个纯 Python 版在 15 种仓库布局上各跑一次 upgrade，比对写进清单
+    # 的数据。排版差异（toml_edit 不压多行数组、不吃表间空行）不算失败，见脚本注释。
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - run: cargo build
+
+      # 1.6.101 是最后一个纯 Python 版（改造就落在它后面一版）。装进独立 venv，
+      # 免得它那串依赖（tomlkit/typer/farlog/funshell）污染跑差分脚本的解释器。
+      - name: Install the pre-rewrite baseline
+        run: |
+          python3 -m venv .baseline
+          .baseline/bin/pip install -q "funbuild==1.6.101"
+
+      # 差分脚本本身只用标准库（tomllib 是 3.11+ 自带）
+      - name: Differential against funbuild 1.6.101
+        run: python3 scripts/differential.py --baseline "$PWD/.baseline/bin/funbuild"
+
+  python:
+    # Python 侧只剩 funbuild.tool（历史遗留，funtiktok 在用）。它没有测试，但至少
+    # 得保证能 import、并且过 ruff —— 发版时 MaturinBuild 会跑 `uvx ruff format`。
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v5
+      - run: uvx ruff check src
+      - run: uvx ruff format --check src
+      - run: PYTHONPATH=src python3 -c "from funbuild.tool.fastapi import ApiRoute, add_api_routes, api_route"

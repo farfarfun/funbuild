@@ -9,6 +9,14 @@ __pycache__/
 *.pyc
 logs
 tmp
+
+# ---- Rust ----
+# Cargo.lock 刻意不忽略：它受版本控制，CI 用 `cargo test --locked` 校验。
+target/
+# 差分测试的工作目录（两套 fixture 仓库），`--keep` 时留下
+.differential/
+# CI 里装改造前那版 Python funbuild 的 venv
+.baseline/
 .coverage
 htmlcov
 *.db

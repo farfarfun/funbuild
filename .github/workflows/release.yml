@@ -1,0 +1,185 @@
+name: Release
+
+# 改成 Rust 之后 wheel 是平台相关的（里面装的是编译好的二进制），本地 `uv publish`
+# 只能传一个本机平台。所以 wheel 构建和上传全部挪到这里，由 tag 触发；版本自增 /
+# push / tag 仍留在本地 funbuild。
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # 版本号有两个来源（pyproject.toml 和根 Cargo.toml 的 [workspace.package]），
+  # funbuild 发版时会把两边写成一致，对不上说明发版流程出了岔子。
+  check:
+    name: version
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: v
+        shell: bash
+        # 根 Cargo.toml 是纯虚拟工作区，第一个行首 `version = ` 就是
+        # [workspace.package] 的那个；pyproject.toml 的第一个是 [project].version。
+        run: |
+          set -eu
+          cargo_version="$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)"
+          python_version="$(grep -m1 '^version = ' pyproject.toml | cut -d'"' -f2)"
+          if [ -z "$cargo_version" ] || [ -z "$python_version" ]; then
+            echo "::error::读不出版本号 (Cargo=${cargo_version} pyproject=${python_version})"
+            exit 1
+          fi
+          if [ "$cargo_version" != "$python_version" ]; then
+            echo "::error::Cargo.toml 的 ${cargo_version} 和 pyproject.toml 的 ${python_version} 对不上"
+            exit 1
+          fi
+          if [ "$GITHUB_REF_TYPE" = tag ] && [ "$GITHUB_REF_NAME" != "v${cargo_version}" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} 和清单里的 ${cargo_version} 对不上"
+            exit 1
+          fi
+          echo "version=${cargo_version}" >>"$GITHUB_OUTPUT"
+
+  wheels:
+    name: wheel (${{ matrix.platform.target }})
+    runs-on: ${{ matrix.platform.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          # 不做 Windows：funbuild 生成的是 POSIX shell 命令串（`rm -rf`、子 shell、
+          # `$(ls -t *.tgz)`），在 cmd.exe 下本来就跑不了。
+          - runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            manylinux: auto
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            manylinux: auto
+          # musl 全静态，给 alpine 之类的镜像。funbuild 没有任何 C 依赖
+          # （没有网络库、没有 OpenSSL），所以静态构建不需要额外的系统包。
+          - runner: ubuntu-24.04
+            target: x86_64-unknown-linux-musl
+            manylinux: musllinux_1_2
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+            manylinux: musllinux_1_2
+          # macos-13 已退役；Intel macOS 现在只有 macos-15-intel。
+          - runner: macos-15-intel
+            target: x86_64-apple-darwin
+          - runner: macos-latest
+            target: aarch64-apple-darwin
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # bin 模式的 wheel 是 py3-none-<platform>：一个 wheel 覆盖所有 Python 版本，
+      # 不需要按解释器铺矩阵，构建时也用不上 abi3。
+      - name: Build wheel
+        uses: PyO3/maturin-action@v1
+        with:
+          target: ${{ matrix.platform.target }}
+          args: --release --out dist
+          sccache: "true"
+          manylinux: ${{ matrix.platform.manylinux || 'auto' }}
+
+      # 装一遍再真的跑一次，确保产出的不是一个只能构建、装上就崩的 wheel。
+      # 交叉编译出来的跑不了，跳过。
+      - name: Smoke test
+        if: "!contains(matrix.platform.target, 'musl')"
+        shell: bash
+        run: |
+          set -eux
+          python -m pip install --find-links dist --no-index funbuild
+          # 命令必须真的装出来：bin 模式把二进制放进 wheel 的 scripts/，
+          # 这是整个分发方式的前提，哪天 [project.scripts] 被加回去这里会先红。
+          funbuild --version
+          funbuild --help >/dev/null
+          # 历史遗留的纯 Python 模块（funtiktok 在用）也得跟着进 wheel
+          python -c "from funbuild.tool.fastapi import ApiRoute, add_api_routes, api_route"
+          python -c "import importlib.resources as r; assert (r.files('funbuild') / 'py.typed').is_file()"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.platform.target }}
+          path: dist
+
+  sdist:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: PyO3/maturin-action@v1
+        with:
+          command: sdist
+          args: --out dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-sdist
+          path: dist
+
+  publish:
+    needs: [check, wheels, sdist]
+    runs-on: ubuntu-24.04
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      # PyPI trusted publishing 要的 OIDC id-token
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wheels-*
+          path: dist
+          merge-multiple: true
+
+      - uses: astral-sh/setup-uv@v5
+
+      # 用 uv publish 而不是 maturin upload：后者不支持 trusted publishing，只认
+      # MATURIN_PYPI_TOKEN / .pypirc。
+      #
+      # 前置条件：PyPI 的 funbuild 项目设置里登记本仓库为 trusted publisher，
+      # workflow 填 release.yml、environment 留空（本 job 没有 environment:）。
+      #
+      # 写 always 而不是默认的 automatic：automatic 拿不到 id-token 时会静默退回去
+      # 找 token，配置错了要等到真实发版才暴露。always 直接失败。
+      #
+      # --check-url 让重跑变成幂等的：传到一半挂了，重跑会跳过已经在 PyPI 上的文件。
+      - name: Publish to PyPI
+        run: |
+          uv publish \
+            --trusted-publishing always \
+            --check-url https://pypi.org/simple/ \
+            dist/*
+
+  # 装机验证只能放在发布之后：下面装的是真的从 PyPI 下来的那一版。这一步红了说明
+  # 刚发出去的版本装不上，得立刻补一个。
+  verify-install:
+    name: verify (${{ matrix.os }})
+    needs: [check, publish]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-latest]
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Install from PyPI and run it
+        shell: bash
+        env:
+          VERSION: ${{ needs.check.outputs.version }}
+        run: |
+          set -eux
+          # --refresh 绕开 uv 的索引缓存：刚发布的版本常常被缓存挡在外面
+          uv tool install --refresh "funbuild==${VERSION}"
+          "$(uv tool dir)/funbuild/bin/funbuild" --version | grep -F "${VERSION}"

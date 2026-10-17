@@ -1,24 +1,26 @@
 # funbuild
 
 [![PyPI version](https://badge.fury.io/py/funbuild.svg)](https://badge.fury.io/py/funbuild)
-[![Python](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![Rust](https://img.shields.io/badge/rust-1.82+-orange.svg)](https://www.rust-lang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**funbuild** 是面向 Python / 混合仓库的构建与发布辅助工具：根据项目结构自动选择构建策略（UV、Poetry、旧式 PyPI 脚本、`package.json` 前端包、Flutter 及混合模式等），串联版本递增、构建、安装校验、发布与 Git 标签等常见流程。
+**funbuild** 是面向 Python / 混合仓库的构建与发布辅助工具：根据项目结构自动选择构建策略（UV、Poetry、旧式 PyPI 脚本、`package.json` 前端包、Flutter、maturin 及纯 Rust 仓库等），串联版本递增、构建、安装校验、发布与 Git 标签等常见流程。
+
+实现是 **Rust**，通过 PyPI 分发——`pip install funbuild` 装到 `<venv>/bin/funbuild` 的是一个编译好的二进制，不是 Python 脚本，所以除了 `uv` 之外没有任何运行时依赖。用法与 1.6.101 之前的纯 Python 版完全一致。
 
 ## 特性
 
-- **多构建策略**：按仓库布局自动匹配 `UVBuild`、`PoetryBuild`、`PypiBuild`、`NpmFrontendBuild`、`UvNpmHybridBuild`、`CargoBuild` 等实现，无需手写切换逻辑。Python 之外也覆盖前端、Flutter 和纯 Rust 仓库。
-- **版本同步**：以根目录 `pyproject.toml` 的 `[project].version` 为主源时，可将版本同步到仓内其它带 `version` 的 `pyproject.toml`、`package.json` 与 `pubspec.yaml`（含子目录；`pubspec.yaml` 只同步 `major.minor.patch`，`+buildNumber` 保持不变）。
+- **多构建策略**：按仓库布局自动匹配 `UVBuild`、`MaturinBuild`、`PoetryBuild`、`PypiBuild`、`NpmFrontendBuild`、`FlutterBuild`、`UvNpmHybridBuild`、`CargoBuild` 等实现，无需手写切换逻辑。Python 之外也覆盖前端、Flutter 和纯 Rust 仓库。
+- **版本同步**：以根目录 `pyproject.toml` 的 `[project].version` 为主源时，可将版本同步到仓内其它带 `version` 的 `pyproject.toml`、`package.json` 与 `pubspec.yaml`（含子目录；`pubspec.yaml` 只同步 `major.minor.patch`，`+buildNumber` 保持不变）。改写清单时保留注释与排版，发版提交里只有版本号那一行改动。
 - **依赖取最新**：在 `[tool.funbuild].latest-packages` 里列出的依赖，每次发版前会把版本下界抬到当时最新的已发布版本并写回 `pyproject.toml`，使其进入 wheel metadata，下游升级时必定带上最新的上游；名单里的包若还没写进 `dependencies`，会按最新版本补上。
-- **依赖与工具链**：内置对 **uv**、**ruff** 等工具的调用约定；日志通过 **farlog**，Shell 流程通过 **funshell**。
+- **零运行时依赖**：只依赖 `uv`（发版流程要调 `uv build` / `uv publish` / `uv lock`）。`tomlkit` / `pyyaml` / `typer` / `farlog` / `funshell` 全部消失。
 - **Git 工作流**：`pull` / `push` / `tag` 等与远程协作；`push` 在提交阶段优先用 **aicommits** 生成说明，未安装时自动回退到默认信息。
-- **失败即中止**：任一 shell 步骤返回非 0 即抛出 `ShellCommandError` 并以非 0 码退出，构建失败不会继续推送或打标签。
+- **失败即中止**：任一 shell 步骤返回非 0 即以非 0 码退出，构建失败不会继续推送或打标签。
 - **维护命令**：`clean` 与 `clean-history` 会改写 Git 状态或强制重写远程历史，使用前请确认团队规范与备份策略。
 
 ## 打包支持的项目类型
 
-`funbuild` 运行时会按下表顺序（从上到下）依次探测仓库根目录，命中第一个匹配的类型即停止；判定逻辑见 `src/funbuild/core/registry.py`。
+`funbuild` 运行时会按下表顺序（从上到下）依次探测仓库根目录，命中第一个匹配的类型即停止；判定逻辑见 `crates/funbuild-core/src/builders/mod.rs` 的 `detect()`。
 
 | 优先级 | 构建类型 | 判定条件 | 适用项目 |
 | --- | --- | --- | --- |
@@ -98,7 +100,8 @@ funbuild:
 
 ## 系统要求
 
-- Python 3.10+
+- Linux 或 macOS。命令串是 POSIX shell（`rm -rf`、子 shell、`$(...)`），因此不提供 Windows wheel
+- Python 3.12+（只用来承载分发与安装；funbuild 自己是二进制，不跑在解释器里）
 - Git（版本管理与标签推送）
 - 可选：`aicommits`（`npm install -g aicommits`，需 4.x）。只有在**不传** `message` 时才会调用它生成提交信息；没装或调用失败则回退到默认信息 `chore: 更新项目文件`。显式传了 `message` 就直接用该值，不走 aicommits。不影响流程。无需额外配置：funbuild 调用时自带 `--type conventional` 和类型表约束，不依赖 `~/.aicommits` 里的 `type`（它默认是 `plain`，只输出纯描述）。描述语种不管，仍听你自己的 `locale`。
 - Flutter 项目需要本机装好 `flutter` 命令并加入 `PATH`；`funbuild` 本身只负责拼装 `flutter` 命令并不校验其可用性。
@@ -114,17 +117,26 @@ pip install funbuild
 
 ### 从源码安装
 
+需要 Rust 工具链（1.82+）：
+
 ```bash
 git clone https://github.com/farfarfun/funbuild.git
 cd funbuild
-pip install .
+pip install .          # 走 maturin，会现场编译一次
 ```
 
-使用 [uv](https://github.com/astral-sh/uv) 时，可在克隆后执行 `uv sync` 或 `uv pip install -e .` 进行可编辑安装。
+只想拿二进制而不装进 Python 环境：
+
+```bash
+cargo build --release  # 产物在 target/release/funbuild
+```
+
+> 没有「可编辑安装」这回事了：`pip install -e .` 对 bin 模式的 maturin 项目没有意义，
+> 改完代码跑 `cargo build` 用 `target/debug/funbuild` 就行。
 
 ## 命令一览
 
-在项目根目录执行（入口由 `pyproject.toml` 的 `[project.scripts]` 注册为 `funbuild`）：
+在项目根目录执行（`pip install` 会把编译好的二进制装到 `<venv>/bin/funbuild`）：
 
 | 命令 | 参数 | 作用 |
 | --- | --- | --- |
@@ -139,9 +151,9 @@ pip install .
 | `clean` | — | 重建 Git 索引以应用新的 `.gitignore`（会产生一次提交） |
 | `clean-history` | — | **破坏性**：删除全部标签与提交历史并强推远程 |
 
-> 命令名中的下划线会被 typer 转成连字符，因此是 `clean-history` 而非 `clean_history`。
+> 子命令名用连字符，因此是 `clean-history` 而非 `clean_history`；`release` 是 `build` 的别名。
 
-> `--message` / `message` 不传时为 `None`：此时优先交给 aicommits 生成提交信息，未安装 aicommits 才回退到默认信息 `chore: 更新项目文件`（定义在 `src/funbuild/core/util.py` 的 `DEFAULT_COMMIT_MESSAGE`）。aicommits 的 `--yes` 只在 TTY 下才真的提交，funbuild 会捕获它的输出、发现它没提交就拿这条信息自己提交；调用时一并把 `<类型>: <描述>` 的格式和类型表交代给它，所以自动生成的信息本身就是合规的。
+> `--message` / `message` 不传时为 `None`：此时优先交给 aicommits 生成提交信息，未安装 aicommits 才回退到默认信息 `chore: 更新项目文件`（定义在 `crates/funbuild-core/src/commit.rs` 的 `DEFAULT_MESSAGE`）。aicommits 的 `--yes` 只在 TTY 下才真的提交，funbuild 会捕获它的输出、发现它没提交就拿这条信息自己提交；调用时一并把 `<类型>: <描述>` 的格式和类型表交代给它，所以自动生成的信息本身就是合规的。
 >
 > 显式传入的信息建议也写成 SPEC §10 的 `<类型>: <描述>`（类型取 `feat`/`fix`/`docs`/`refactor`/`test`/`chore`，描述不限语种），但这只是**约定**：不合约定只会记一行 warning，信息照原样提交，既不中止流程也不改写成兜底信息。
 
@@ -308,33 +320,58 @@ funbuild build
 
 ## 错误处理
 
-所有 shell 步骤经 `run_checked()` 执行，退出码非 0 即抛 `ShellCommandError`，进程以非 0 码退出。这意味着 `funbuild build` 在构建或发布失败时不会再继续 `push` 和 `tag`，可直接用于 CI 的失败判定。
+所有 shell 步骤经 `run_checked()` 执行：命令用 ` && ` 串成一条交给同一个 `sh -c`，任一条退出码非 0 即中止，进程以非 0 码退出。这意味着 `funbuild build` 在构建或发布失败时不会再继续 `push` 和 `tag`，可直接用于 CI 的失败判定。
+
+退出码：`0` 成功、`1` 运行失败、`2` 用法错误（参数写错、子命令不存在）。
+
+## 日志
+
+进度与告警打到 **stderr**，被调用的构建命令的输出直通 stdout，两者分流。用
+`FUNBUILD_LOG` 调级别（`FUNBUILD_LOG=debug funbuild build` 会把每条执行的 shell
+命令也打出来）。
+
+> 刻意不用 `RUST_LOG`：funbuild 调的 uv 自己也是 Rust 写的、也读这个变量，共用一个
+> 的话 funbuild 那几行日志会被 uv 的依赖求解过程淹掉。`RUST_LOG` 仍然留给 uv。
+
+> 1.6.101 及之前的版本会在**每个被操作的仓库**里落一份 `logs/funbuild.log`。那些文件
+> 是未跟踪的，`push` 的 `git add -A -f` 会把它们一起提交上去。现在不再写文件日志。
 
 ## 配置说明
 
 - **Python 项目**：在根目录 `pyproject.toml` 中维护 `[project].version` 与依赖；UV 类构建会读写该版本并同步到其它清单。可选的 `[tool.funbuild].latest-packages` 用于指定「每次发版取最新」的依赖，见上方「[让某个依赖每次发版都取最新](#让某个依赖每次发版都取最新)」。
-- **纯前端 / 子包**：在对应 `package.json` 中可使用 `funbuild` 字段（对象或 `true`）扩展行为（例如自定义 `build` 命令、`cleanDirs` 等），具体逻辑见源码中 `NpmFrontendBuild`。
-- **Flutter 项目**：在 `pubspec.yaml` 中可使用 `funbuild` 字段自定义 `build` / `install` / `publish` / `cleanDirs`，具体逻辑见源码中 `FlutterBuild`；详见上方「[打包支持的项目类型](#打包支持的项目类型)」里的 Flutter 小节。
+- **纯前端 / 子包**：在对应 `package.json` 中可使用 `funbuild` 字段（对象或 `true`）扩展行为（例如自定义 `build` 命令、`cleanDirs` 等），具体逻辑见 `crates/funbuild-core/src/builders/npm.rs`。
+- **Flutter 项目**：在 `pubspec.yaml` 中可使用 `funbuild` 字段自定义 `build` / `install` / `publish` / `cleanDirs`，具体逻辑见 `crates/funbuild-core/src/builders/flutter.rs`；详见上方「[打包支持的项目类型](#打包支持的项目类型)」里的 Flutter 小节。
 - **纯 Rust 项目**：版本主源是 `Cargo.toml` 的 `[package].version`（或 `[workspace.package].version`），没有可配置项 —— 发版前的三项检查与发布边界都是固定的，详见上方「[纯 Rust 项目 (`CargoBuild`)](#纯-rust-项目-cargobuild)」小节。
 
-构建类型的判定顺序见上方「[打包支持的项目类型](#打包支持的项目类型)」表格及 `src/funbuild/core/registry.py` 中的注册表 —— 构建类型由仓库布局自动探测，不需要也无法在配置里指定。`[tool.funbuild]` 目前只认 `latest-packages` 一个键。
+构建类型的判定顺序见上方「[打包支持的项目类型](#打包支持的项目类型)」表格及 `crates/funbuild-core/src/builders/mod.rs` 的 `detect()` —— 构建类型由仓库布局自动探测，不需要也无法在配置里指定。`[tool.funbuild]` 目前只认 `latest-packages` 一个键。
 
 ## 集成组件
 
-- [uv](https://github.com/astral-sh/uv) — 包管理与构建
-- [ruff](https://github.com/astral-sh/ruff) — Lint / 格式化（按项目配置使用）
-- [typer](https://typer.tiangolo.com/)（`typer-slim`）— CLI 框架
+- [uv](https://github.com/astral-sh/uv) — 包管理与构建（唯一的运行时依赖）
+- [ruff](https://github.com/astral-sh/ruff) — Lint / 格式化（组织仓库的构建阶段会跑一次）
+- [clap](https://docs.rs/clap) — CLI 解析
+- [toml_edit](https://docs.rs/toml_edit) — 保留注释与排版的 TOML 改写
 - [aicommits](https://github.com/Nutlope/aicommits) — 默认与 `push` 流水线集成的提交信息生成（以本机 CLI 为准）
 
 ## 仓库布局（摘要）
 
+Rust 看 `crates/`，Python 看 `src/`；根目录是纯虚拟 Cargo 工作区（没有 `[package]`）。
+
 ```
 funbuild/
-├── src/
-│   └── funbuild/
-│       ├── core/       # 构建注册与各策略实现
-│       └── tool/       # 附加工具入口
-├── tests/              # 单元测试
+├── crates/
+│   ├── funbuild-core/      # 全部逻辑
+│   │   └── src/
+│   │       ├── builders/   # 各构建类型与探测链
+│   │       ├── manifest/   # pyproject / package.json / pubspec / Cargo.toml 的读写
+│   │       ├── commit.rs   # 提交信息校验与 aicommits
+│   │       ├── git.rs      # 仓库状态
+│   │       ├── latest_deps.rs
+│   │       └── shell.rs    # 命令执行
+│   └── funbuild/           # clap CLI + [[bin]] funbuild
+├── src/funbuild/tool/      # 历史遗留的纯 Python 工具（与发版无关）
+├── scripts/differential.py # 与改造前的 Python 版做行为差分
+├── Cargo.toml
 ├── pyproject.toml
 └── README.md
 ```
@@ -350,16 +387,21 @@ funbuild/
 ```bash
 git clone https://github.com/farfarfun/funbuild.git
 cd funbuild
-uv pip install -e .
-# 或: pip install -e .
 
-# 跑测试 (pytest 已在 dev 依赖组, uv 会自动装)
-uv run pytest -q
+# 跑测试
+cargo test --workspace
 
-# 格式化与静态检查
-uvx ruff format .
-uvx ruff check . --fix
+# 格式化与静态检查（CI 以 -D warnings 跑 clippy）
+cargo fmt --all
+cargo clippy --workspace --all-targets -- -D warnings
+
+# 和改造前的纯 Python 版做行为差分：两边在 15 种仓库布局上各跑一次 upgrade，
+# 比对写进清单的数据。改动清单读写逻辑后务必跑一次。
+cargo build
+python3 scripts/differential.py
 ```
+
+Python 侧只剩 `src/funbuild/tool`（历史遗留，与发版无关），用 `uvx ruff` 检查。
 
 ## 许可证
 

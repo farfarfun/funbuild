@@ -1,17 +1,22 @@
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["maturin>=1.7,<2"]
+build-backend = "maturin"
 
 [project]
 name = "funbuild"
-version = "1.6.101"
-description = "Python / 前端 / Flutter 仓库的一键发版工具：版本递增、构建、发布、打 tag，自动适配 uv / Poetry / npm / Flutter"
+version = "1.6.102"
+description = "Python / 前端 / Flutter / Rust 仓库的一键发版工具：版本递增、构建、发布、打 tag，自动适配 uv / Poetry / npm / Flutter / Cargo"
 readme = "README.md"
 requires-python = ">=3.12"
 license = "MIT"
 license-files = ["LICENSE"]
-dependencies = [ "uv>=0.12.23", "tomlkit>=0.15.1", "pyyaml>=6.0.3", "typer-slim>=0.24.0", "farlog>=1.1.8", "funshell>=1.0.23",]
-keywords = [ "build", "requirements", "packaging", "uv",]
+# 实现全在 Rust 二进制里；留着 uv 是因为发版流程要调它
+dependencies = [ "uv>=0.12.23",]
+keywords = [ "build", "requirements", "packaging", "uv", "rust",]
+classifiers = [
+    "Operating System :: POSIX",
+    "Programming Language :: Rust",
+]
 [[project.authors]]
 name = "牛哥"
 email = "niuliangtao@qq.com"
@@ -26,35 +31,29 @@ email = "niuliangtao@qq.com"
 [[project.maintainers]]
 name = "farfarfun"
 email = "farfarfun@qq.com"
-[project.scripts]
-funbuild = "funbuild.core:funbuild"
 
+# 刻意没有 [project.scripts]：bin 模式下两者同时存在时 maturin 会拒绝构建
 [project.urls]
 Organization = "https://github.com/farfarfun"
 Repository = "https://github.com/farfarfun/funbuild"
 Releases = "https://github.com/farfarfun/funbuild/releases"
 
 [dependency-groups]
-dev = [ "pytest>=8", "ruff>=0.12.7",]
+dev = [ "maturin>=1.7,<2", "ruff>=0.12.7",]
+
+[tool.maturin]
+bindings = "bin"
+manifest-path = "crates/funbuild/Cargo.toml"
+python-source = "src"
+strip = true
 
 [tool.ruff]
 indent-width = 4
 line-length = 120
-
-[tool.pytest.ini_options]
-testpaths = [ "tests",]
-# 必须显式指向 src: 否则 pytest 会 import 到全局装着的 funbuild, 测的是已发布的
-# 旧版本而不是工作区代码——改动跑绿了也毫无意义。
-pythonpath = [ "src",]
-
-[tool.funbuild]
-latest-packages = [ "farlog", "funshell",]
+target-version = "py312"
 
 [tool.uv]
 package = true
-
-[tool.hatch.build.targets.wheel]
-packages = ["src/funbuild"]
 
 [tool.ruff.lint]
 select = [ "I", "E", "W", "B", "F", "UP", "RUF", "PL",]

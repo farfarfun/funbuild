@@ -1,0 +1,21 @@
+{
+  "version": 3,
+  "profiles": [
+    "python",
+    "rust"
+  ],
+  "applications": [],
+  "additional_zones": [
+    {
+      "path": "crates",
+      "owner": "engineering",
+      "purpose": "Rust crates: funbuild-core 发版流程实现、funbuild CLI 二进制"
+    },
+    {
+      "path": "logs",
+      "owner": "engineering",
+      "purpose": "历史遗留的本地日志目录，已 gitignore；检查器不读 gitignore，必须在此声明才不会报 zone.unowned"
+    }
+  ],
+  "allowed_root_files": []
+}
