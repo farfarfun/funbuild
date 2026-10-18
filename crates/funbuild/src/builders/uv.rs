@@ -45,6 +45,16 @@ pub struct UvBuild {
 }
 
 impl UvBuild {
+    fn load_pypirc(path: &Path) -> std::result::Result<Ini, ini::Error> {
+        Ini::load_from_file_opt(
+            path,
+            ini::ParseOption {
+                enabled_indented_mutiline_value: true,
+                ..Default::default()
+            },
+        )
+    }
+
     pub fn detect(repo_path: &Path) -> Result<Option<Self>> {
         let root = repo_path.join("pyproject.toml");
         if !root.exists() {
@@ -361,9 +371,16 @@ impl Builder for UvBuild {
         let pypirc = std::env::var_os("HOME")
             .map(PathBuf::from)
             .map(|home| home.join(".pypirc"));
-        let config = pypirc
-            .filter(|path| path.exists())
-            .and_then(|path| Ini::load_from_file(path).ok());
+        let config =
+            pypirc
+                .filter(|path| path.exists())
+                .and_then(|path| match Self::load_pypirc(&path) {
+                    Ok(config) => Some(config),
+                    Err(error) => {
+                        log::warn!("无法读取 {}: {error}", path.display());
+                        None
+                    }
+                });
 
         let mut server = "pypi".to_string();
         if let Some(config) = &config {
@@ -720,6 +737,34 @@ mod tests {
         assert_eq!(
             UvBuild::first_uv_index_name(&inline).as_deref(),
             Some("bbb")
+        );
+    }
+
+    #[test]
+    fn reads_multiline_pypirc_index_servers() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(".pypirc");
+        std::fs::write(
+            &path,
+            "[distutils]\nindex-servers =\n    pypi\n    private\n\n[pypi]\nusername = __token__\npassword = test-token\n",
+        )
+        .unwrap();
+        assert!(Ini::load_from_file(&path)
+            .unwrap()
+            .section(Some("pypi"))
+            .is_none());
+        let config = UvBuild::load_pypirc(&path).unwrap();
+        assert_eq!(
+            config
+                .get_from(Some("distutils"), "index-servers")
+                .unwrap()
+                .split_whitespace()
+                .next(),
+            Some("pypi")
+        );
+        assert_eq!(
+            config.get_from(Some("pypi"), "password"),
+            Some("test-token")
         );
     }
 
