@@ -10,7 +10,7 @@ funbuild push         # 按文件修改时间分批提交并推送
 funbuild upgrade      # 只递增版本号并写回各清单
 ```
 
-也发布在 PyPI（`pip install funbuild`，wheel 里装的是同一个二进制），两条渠道同号。
+PyPI 上的同名包只保留 `funbuild.tool` 的 Python 兼容模块，不提供命令行；二进制请通过 apt、Homebrew、crates.io 或 GitHub Release 安装。
 
 ## 判定的项目类型
 

@@ -23,7 +23,7 @@ fn normalize(path: &Path) -> PathBuf {
     out
 }
 
-/// maturin (PyO3) 项目。与 UVBuild 的差异只有三处：构建用 maturin、不在本地发布、
+/// Python 包与 Rust crate 同仓发布：按 Python backend 构建 wheel，由 CI 发布，
 /// 版本号还要写进 Cargo.toml。
 ///
 /// 持有一个 UvBuild 而不是继承：状态只存在内层那一份，`ctx()` 转发过去。
@@ -131,7 +131,7 @@ impl Builder for MaturinBuild {
         Ok(())
     }
 
-    /// 构建命令：maturin build --release。
+    /// 构建命令：Rust 二进制与 Python wheel 各自使用对应的构建器。
     ///
     /// 不跑 `uv lock`：maturin 项目的依赖解析在 Cargo.lock 里，而那个文件要进仓库、
     /// 由 CI 的 `--locked` 校验，不能在每次发版时删掉重建。
@@ -149,22 +149,35 @@ impl Builder for MaturinBuild {
                 .display()
                 .to_string();
             let manifest = self.cargo_manifest_path(&pkg_dir).display().to_string();
+            let doc =
+                toml_manifest::load(self.ctx().repo_path.join(&pkg_dir).join("pyproject.toml"))?;
+            let uses_maturin = toml_manifest::dig_str(&doc, &["build-system", "build-backend"])
+                .is_some_and(|backend| backend.trim().starts_with("maturin"));
             result.push(format!("rm -rf {}", shell::quote(&out_dir)));
-            result.push(format!(
-                "maturin build --release --manifest-path {} --out {}",
-                shell::quote(&manifest),
-                shell::quote(&out_dir)
-            ));
+            if uses_maturin {
+                result.push(format!(
+                    "maturin build --release --manifest-path {} --out {}",
+                    shell::quote(&manifest),
+                    shell::quote(&out_dir)
+                ));
+            } else {
+                result.push(format!(
+                    "cargo build --release --manifest-path {}",
+                    shell::quote(&manifest)
+                ));
+                result.push(format!(
+                    "uv build -q --wheel --directory {} --out-dir {} --clear",
+                    shell::quote(&pkg_dir),
+                    shell::quote(&out_dir)
+                ));
+            }
         }
         Ok(result)
     }
 
-    /// 不在本地发布——交给 tag 触发的 GitHub Actions。
-    ///
-    /// 本地 `uv publish` 只能上传一个本机平台的 wheel，其他平台 pip install 会退化到
-    /// sdist 现场编译，要求用户装 Rust 工具链。
+    /// 不在本地发布——Python 包和 Rust 二进制都交给 tag 触发的 GitHub Actions。
     fn cmd_publish(&self) -> Result<Vec<String>> {
-        log::info!("skip publish: maturin 项目由 tag 触发的 GitHub Actions 发布多平台 wheel");
+        log::info!("skip publish: Python 包由 tag 触发的 GitHub Actions 发布");
         Ok(Vec::new())
     }
 
@@ -354,5 +367,32 @@ mod tests {
             build.cmd_install().unwrap(),
             vec!["uv pip install dist/funbuild/*/*.whl"]
         );
+    }
+
+    #[test]
+    fn separate_python_wheel_does_not_embed_cli() {
+        let dir = tempfile::tempdir().unwrap();
+        virtual_workspace(dir.path(), "crates/demo-py");
+        let path = dir.path().join("pyproject.toml");
+        let pyproject = std::fs::read_to_string(&path).unwrap();
+        std::fs::write(
+            &path,
+            pyproject.replace(
+                "build-backend = \"maturin\"",
+                "build-backend = \"hatchling.build\"",
+            ),
+        )
+        .unwrap();
+
+        let build = MaturinBuild::detect(dir.path()).unwrap().unwrap();
+        let commands = build.cmd_build().unwrap();
+        assert!(commands
+            .iter()
+            .any(|c| c.starts_with("cargo build --release")));
+        assert!(commands
+            .iter()
+            .any(|c| c.starts_with("uv build -q --wheel")));
+        assert!(!commands.iter().any(|c| c.starts_with("maturin build")));
+        assert!(build.cmd_publish().unwrap().is_empty());
     }
 }

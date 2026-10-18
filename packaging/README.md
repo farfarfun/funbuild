@@ -8,7 +8,7 @@ funbuild 有五条分发渠道。前两条（apt / brew）靠组织的共享包�
 | --- | --- |
 | `apt install funbuild` | `farfarfun/packages` 拉本仓库 Release 里的 `.deb`，重建签名索引发到 Pages |
 | `brew install funbuild` | `farfarfun/packages` 按 `SHA256SUMS` 渲染 formula，提交回它自己的 `Formula/`（那个仓库同时就是 tap） |
-| `pip install funbuild` | 本仓库 → PyPI（`wheels` / `sdist` / `publish`）。wheel 里装的就是这个二进制 |
+| `pip install funbuild` | 本仓库 → PyPI（通用 wheel / sdist）。只提供 `funbuild.tool` Python 兼容模块，不安装命令 |
 | `cargo install funbuild` | 本仓库 → crates.io（`crates`） |
 | 裸二进制 / tarball | 本仓库 → GitHub Release（`binaries`） |
 

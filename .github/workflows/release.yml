@@ -1,8 +1,7 @@
 name: Release
 
-# 改成 Rust 之后 wheel 是平台相关的（里面装的是编译好的二进制），本地 `uv publish`
-# 只能传一个本机平台。所以 wheel 构建和上传全部挪到这里，由 tag 触发；版本自增 /
-# push / tag 仍留在本地 funbuild。
+# PyPI 只分发纯 Python 兼容模块；Rust 命令由独立二进制、apt、brew 和 crates.io
+# 分发。两边同号，由 tag 触发构建和发布。
 on:
   push:
     tags: ["v*"]
@@ -46,84 +45,29 @@ jobs:
           echo "version=${cargo_version}" >>"$GITHUB_OUTPUT"
 
   wheels:
-    name: wheel (${{ matrix.platform.target }})
-    runs-on: ${{ matrix.platform.runner }}
-    strategy:
-      fail-fast: false
-      matrix:
-        platform:
-          # 不做 Windows：funbuild 生成的是 POSIX shell 命令串（`rm -rf`、子 shell、
-          # `$(ls -t *.tgz)`），在 cmd.exe 下本来就跑不了。
-          - runner: ubuntu-24.04
-            target: x86_64-unknown-linux-gnu
-            manylinux: auto
-          - runner: ubuntu-24.04-arm
-            target: aarch64-unknown-linux-gnu
-            manylinux: auto
-          # musl 全静态，给 alpine 之类的镜像。funbuild 没有任何 C 依赖
-          # （没有网络库、没有 OpenSSL），所以静态构建不需要额外的系统包。
-          - runner: ubuntu-24.04
-            target: x86_64-unknown-linux-musl
-            manylinux: musllinux_1_2
-          - runner: ubuntu-24.04-arm
-            target: aarch64-unknown-linux-musl
-            manylinux: musllinux_1_2
-          # macos-13 已退役；Intel macOS 现在只有 macos-15-intel。
-          - runner: macos-15-intel
-            target: x86_64-apple-darwin
-          - runner: macos-latest
-            target: aarch64-apple-darwin
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      # bin 模式的 wheel 是 py3-none-<platform>：一个 wheel 覆盖所有 Python 版本，
-      # 不需要按解释器铺矩阵，构建时也用不上 abi3。
-      - name: Build wheel
-        uses: PyO3/maturin-action@v1
-        with:
-          target: ${{ matrix.platform.target }}
-          args: --release --out dist
-          sccache: "true"
-          manylinux: ${{ matrix.platform.manylinux || 'auto' }}
-
-      # 装一遍再真的跑一次，确保产出的不是一个只能构建、装上就崩的 wheel。
-      # 交叉编译出来的跑不了，跳过。
-      - name: Smoke test
-        if: "!contains(matrix.platform.target, 'musl')"
-        shell: bash
-        run: |
-          set -eux
-          # --no-deps 是必须的：--no-index 之下装不到 uv 那个运行时依赖，而这一步
-          # 要验的是 wheel 本身（二进制 + Python 包），不是依赖解析。
-          python -m pip install --find-links dist --no-index --no-deps funbuild
-          # 命令必须真的装出来：bin 模式把二进制放进 wheel 的 scripts/，
-          # 这是整个分发方式的前提，哪天 [project.scripts] 被加回去这里会先红。
-          funbuild --version
-          funbuild --help >/dev/null
-          # 历史遗留的纯 Python 模块（funtiktok 在用）也得跟着进 wheel
-          python -c "from funbuild.tool.fastapi import ApiRoute, add_api_routes, api_route"
-          python -c "import importlib.resources as r; assert (r.files('funbuild') / 'py.typed').is_file()"
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: wheels-${{ matrix.platform.target }}
-          path: dist
-
-  sdist:
+    name: Python wheel and sdist
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - uses: PyO3/maturin-action@v1
+      - uses: actions/setup-python@v5
         with:
-          command: sdist
-          args: --out dist
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v5
+      - run: uv build --out-dir dist
+
+      - name: Smoke test
+        shell: bash
+        run: |
+          set -eux
+          python -m venv .smoke
+          .smoke/bin/pip install --find-links dist --no-index --no-deps funbuild
+          test ! -e .smoke/bin/funbuild
+          .smoke/bin/python -c "from funbuild.tool.fastapi import ApiRoute, add_api_routes, api_route"
+          .smoke/bin/python -c "import importlib.resources as r; assert (r.files('funbuild') / 'py.typed').is_file()"
+
       - uses: actions/upload-artifact@v4
         with:
-          name: wheels-sdist
+          name: wheels-python
           path: dist
 
   # CLI 二进制单独构建：它的价值就在于「不用装 Python」，所以必须是能直接下载运行
@@ -232,7 +176,7 @@ jobs:
           path: dist/*.deb
 
   publish:
-    needs: [check, wheels, sdist, binaries, deb]
+    needs: [check, wheels, binaries, deb]
     runs-on: ubuntu-24.04
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
@@ -299,7 +243,7 @@ jobs:
 
   # crates.io 发布，和 PyPI 那边分成两个 job：两个 registry 的失败互不牵连。
   crates:
-    needs: [check, wheels, sdist]
+    needs: [check, wheels]
     runs-on: ubuntu-24.04
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
@@ -352,11 +296,8 @@ jobs:
         with:
           python-version: "3.12"
 
-      # 照组织里的真实用法装一遍：pip 装进一个环境，然后敲那个命令。
-      # 这同时验了「wheel 的平台 tag 在这个 runner 上真的能匹配」——装不上会退化
-      # 到 sdist 现场编译，那样 pip 会去拉 Rust 工具链而不是直接失败，所以用
-      # --only-binary 把这条退路堵掉。
-      - name: Install from PyPI and run it
+      # 验证 PyPI 包只提供兼容模块，不会抢占独立二进制的命令名。
+      - name: Install Python module from PyPI
         shell: bash
         env:
           VERSION: ${{ needs.check.outputs.version }}
@@ -377,5 +318,5 @@ jobs:
             sleep 15
           done
           set -x
-          .verify/bin/funbuild --version | grep -F "${VERSION}"
+          test ! -e .verify/bin/funbuild
           .verify/bin/python -c "from funbuild.tool.fastapi import ApiRoute"

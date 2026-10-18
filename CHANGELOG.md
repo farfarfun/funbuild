@@ -1,5 +1,9 @@
 # Changelog
 
+## [1.6.107]
+
+- PyPI 包改为只分发 `funbuild.tool` 的通用纯 Python wheel，不再安装 `funbuild` 命令，也不再依赖 `uv`；命令行继续由 apt、Homebrew、crates.io 和 GitHub Release 提供。需要 `uvx funbuild` 或 `pip install funbuild` 获得命令的调用方须改用二进制渠道。
+
 ## [1.6.105]
 
 ### 新增

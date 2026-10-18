@@ -7,7 +7,7 @@
 
 **funbuild** 是面向 Python / 混合仓库的构建与发布辅助工具：根据项目结构自动选择构建策略（UV、Poetry、旧式 PyPI 脚本、`package.json` 前端包、Flutter、maturin 及纯 Rust 仓库等），串联版本递增、构建、安装校验、发布与 Git 标签等常见流程。
 
-实现是 **Rust**，通过 PyPI 分发——`pip install funbuild` 装到 `<venv>/bin/funbuild` 的是一个编译好的二进制，不是 Python 脚本，所以除了 `uv` 之外没有任何运行时依赖。用法与 1.6.101 之前的纯 Python 版完全一致。
+命令行实现是 **Rust**，通过 apt、Homebrew、crates.io 和 GitHub Release 分发。PyPI 包只保留 `funbuild.tool` 的 Python 兼容模块，不安装 `funbuild` 命令，避免与独立二进制冲突。命令行用法与 1.6.101 之前的纯 Python 版一致。
 
 ## 特性
 
@@ -27,7 +27,7 @@
 | --- | --- | --- | --- |
 | 1 | `SubmoduleWorkspaceBuild` | 根目录同时存在 `apps/` 目录与 `scripts/funbuild.toml` | `<product>-dev` 编排仓库：`apps/` 下每个 app 是独立仓库的 git submodule，仓库自身没有可构建产物，见下方专节 |
 | 2 | `UvNpmHybridBuild` | 同时满足 `UVBuild` 与 `NpmFrontendBuild` 的判定条件 | 同一仓库里既是 UV 管理的 Python 包、又带前端 `package.json` 的混合项目（一条命令串联两侧构建/安装/发布） |
-| 3 | `MaturinBuild` | 满足 `UVBuild` 的条件，且 `build-system.build-backend` 以 `maturin` 开头或存在 `[tool.maturin]` | maturin (PyO3) 的 Rust + Python 扩展项目：版本号同时写进 `pyproject.toml` 和 `Cargo.toml`，wheel 由 tag 触发的 workflow 发布 |
+| 3 | `MaturinBuild` | 满足 `UVBuild` 的条件，且 `build-system.build-backend` 以 `maturin` 开头或存在 `[tool.maturin]` | Rust + Python 混合项目：版本号同时写进 `pyproject.toml` 和 `Cargo.toml`，按 Python backend 构建 wheel，由 tag 触发的 workflow 发布 |
 | 4 | `UVBuild` | 根目录存在 `pyproject.toml` 且含 `[project]` 段 | 使用 `uv` / PEP 621 标准 `pyproject.toml` 的现代 Python 包（含 `extbuild/`、`exts/` 子包） |
 | 5 | `PoetryBuild` | `pyproject.toml` 存在且 `[tool.poetry].version` 有效 | 使用 Poetry 管理版本与依赖的 Python 项目 |
 | 6 | `PypiBuild` | 根目录存在 `script/__version__.md` | 早期遗留的 PyPI 发布脚本项目 |
@@ -101,8 +101,8 @@ funbuild:
 
 ## 系统要求
 
-- Linux 或 macOS。命令串是 POSIX shell（`rm -rf`、子 shell、`$(...)`），因此不提供 Windows wheel
-- Python 3.12+（只用来承载分发与安装；funbuild 自己是二进制，不跑在解释器里）
+- Linux 或 macOS。命令串是 POSIX shell（`rm -rf`、子 shell、`$(...)`）；PyPI 上的兼容模块是跨平台纯 Python 包
+- Python 3.12+ 仅供 PyPI 兼容模块使用；独立命令本身不需要 Python
 - Git（版本管理与标签推送）
 - 可选：`aicommits`（`npm install -g aicommits`，需 4.x）。只有在**不传** `message` 时才会调用它生成提交信息；没装或调用失败则回退到默认信息 `chore: 更新项目文件`。显式传了 `message` 就直接用该值，不走 aicommits。不影响流程。无需额外配置：funbuild 调用时自带 `--type conventional` 和类型表约束，不依赖 `~/.aicommits` 里的 `type`（它默认是 `plain`，只输出纯描述）。描述语种不管，仍听你自己的 `locale`。
 - Flutter 项目需要本机装好 `flutter` 命令并加入 `PATH`；`funbuild` 本身只负责拼装 `flutter` 命令并不校验其可用性。
@@ -110,13 +110,13 @@ funbuild:
 
 ## 安装
 
-### 从 PyPI 安装
+### Python 兼容模块
 
 ```bash
 pip install funbuild
 ```
 
-wheel 里装的就是编译好的二进制，不需要 Rust 工具链。
+这个包只提供 `funbuild.tool`，不会安装 `funbuild` 命令。使用命令行请选以下安装方式。
 
 ### 从 crates.io 安装
 
@@ -166,32 +166,30 @@ curl -fsSLO https://github.com/farfarfun/funbuild/releases/latest/download/funbu
 chmod +x funbuild-x86_64-unknown-linux-gnu && sudo mv $_ /usr/local/bin/funbuild
 ```
 
-> **哪条渠道都不会帮你装 `uv`。** 发 Python 项目要用它（`uv build` / `uv publish` /
-> `uv lock`），pip 那条靠包依赖自动带上，其余四条得自己装一次。只发前端 / Flutter /
-> Rust 项目的话不需要。
+> **命令行安装渠道不会帮你装 `uv`。** 发 Python 项目要用它（`uv build` /
+> `uv publish` / `uv lock`），需自行安装。只发前端 / Flutter / Rust 项目的话不需要。
 
 ### 从源码安装
 
-需要 Rust 工具链（1.82+）：
+从源码安装 Python 兼容模块：
 
 ```bash
 git clone https://github.com/farfarfun/funbuild.git
 cd funbuild
-pip install .          # 走 maturin，会现场编译一次
+pip install .          # 只安装 funbuild.tool，不生成命令
 ```
 
-只想拿二进制而不装进 Python 环境：
+从源码构建命令需要 Rust 工具链（1.82+）：
 
 ```bash
 cargo build --release  # 产物在 target/release/funbuild
 ```
 
-> 没有「可编辑安装」这回事了：`pip install -e .` 对 bin 模式的 maturin 项目没有意义，
-> 改完代码跑 `cargo build` 用 `target/debug/funbuild` 就行。
+> 修改命令行代码后运行 `cargo build`，用 `target/debug/funbuild` 测试。
 
 ## 命令一览
 
-在项目根目录执行（`pip install` 会把编译好的二进制装到 `<venv>/bin/funbuild`）：
+在项目根目录执行（先通过上述二进制渠道安装 `funbuild`）：
 
 | 命令 | 参数 | 作用 |
 | --- | --- | --- |
