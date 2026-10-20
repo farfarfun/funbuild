@@ -119,6 +119,38 @@ pub fn submodule_paths(repo: &Path) -> Vec<PathBuf> {
         .collect()
 }
 
+/// .gitmodules 中登记的路径，包含未初始化的子模块，保留路径中的空格。
+pub fn configured_submodule_paths(repo: &Path) -> Result<Vec<PathBuf>> {
+    if !repo.join(".gitmodules").is_file() {
+        return Ok(Vec::new());
+    }
+    let command = "git config --file .gitmodules --null --get-regexp '^submodule\\..*\\.path$'";
+    let output = shell::capture(command, Some(repo), None)?;
+    if output.code == 1 {
+        return Ok(Vec::new());
+    }
+    if !output.ok() {
+        return Err(Error::invalid(format!(
+            "cannot read {}: {}",
+            repo.join(".gitmodules").display(),
+            output.stderr.trim()
+        )));
+    }
+    output
+        .stdout
+        .split_terminator('\0')
+        .map(|entry| {
+            let (_, path) = entry
+                .split_once('\n')
+                .ok_or_else(|| Error::invalid("invalid git config path record"))?;
+            if path.is_empty() {
+                return Err(Error::invalid("empty submodule path in .gitmodules"));
+            }
+            Ok(PathBuf::from(path))
+        })
+        .collect()
+}
+
 /// 当前分支名，取不到时回退 master。
 pub fn current_branch(cwd: Option<&Path>) -> String {
     let branch = shell::capture_stdout("git rev-parse --abbrev-ref HEAD", cwd, None)

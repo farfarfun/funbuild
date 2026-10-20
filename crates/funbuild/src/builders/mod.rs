@@ -222,7 +222,18 @@ pub trait Builder {
     }
 
     /// 完整发布流程。任一步失败立即中止，不会继续 push 或打标签。
-    fn build(&mut self, message: Option<&str>, target_version: Option<&str>) -> Result<()> {
+    fn build(
+        &mut self,
+        message: Option<&str>,
+        target_version: Option<&str>,
+        dry_run: bool,
+        apps: &[String],
+    ) -> Result<()> {
+        if dry_run || !apps.is_empty() {
+            return Err(Error::invalid(
+                "--dry-run and --apps are only supported for submodule workspaces",
+            ));
+        }
         // 必须在 publish 之前校验：push 是发布之后才跑的，等到那时才报错，包已经
         // 上了 PyPI，却留下「线上有这个版本、仓库里没有对应提交和 tag」的半截状态。
         commit::warn_if_invalid(message);
@@ -432,7 +443,10 @@ pub fn detect(repo_path: PathBuf) -> Result<Box<dyn Builder>> {
     }
 
     // 顺序照 registry.py；还没搬完的构建类型会依次插进来
-    try_builder!(SubmoduleWorkspaceBuild);
+    // 工作区配置决定发布范围；损坏时不能回退到其他 builder 发布根仓库。
+    if let Some(builder) = SubmoduleWorkspaceBuild::detect(&repo_path)? {
+        return Ok(Box::new(builder));
+    }
     try_builder!(UvNpmHybridBuild);
     try_builder!(MaturinBuild);
     try_builder!(UvBuild);

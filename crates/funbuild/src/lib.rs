@@ -71,6 +71,12 @@ enum Command {
         /// 指定发布版本号; 不传则沿用旧逻辑自动递增当前版本号
         #[arg(long)]
         version: Option<String>,
+        /// 仅预览子模块工作区的发布计划，不拉取或修改文件
+        #[arg(long)]
+        dry_run: bool,
+        /// 本次只发布这些应用（逗号分隔），仍遵守 exclude-apps；仅用于子模块工作区
+        #[arg(long, value_delimiter = ',')]
+        apps: Vec<String>,
     },
 
     /// 清理历史
@@ -162,9 +168,12 @@ fn execute(command: Command) -> Result<()> {
             }
         }
         Command::Install => builder()?.install(),
-        Command::Build { message, version } => {
-            builder()?.build(message.as_deref(), version.as_deref())
-        }
+        Command::Build {
+            message,
+            version,
+            dry_run,
+            apps,
+        } => builder()?.build(message.as_deref(), version.as_deref(), dry_run, &apps),
         Command::CleanHistory => builder()?.clean_history(),
         Command::Clean => builder()?.clean(),
         Command::Tag => builder()?.tags(),
@@ -194,12 +203,39 @@ mod tests {
     #[test]
     fn build_takes_positional_message_and_version_option() {
         match parse(&["funbuild", "build", "fix: 修复问题", "--version", "2.0.0"]) {
-            Command::Build { message, version } => {
+            Command::Build {
+                message,
+                version,
+                dry_run,
+                apps,
+            } => {
                 assert_eq!(message.as_deref(), Some("fix: 修复问题"));
                 assert_eq!(version.as_deref(), Some("2.0.0"));
+                assert!(!dry_run);
+                assert!(apps.is_empty());
             }
             other => panic!("unexpected: {other:?}"),
         }
+    }
+
+    #[test]
+    fn build_accepts_workspace_preview_and_comma_separated_apps() {
+        match parse(&[
+            "funbuild",
+            "release",
+            "--dry-run",
+            "--apps",
+            "app-a,app-b",
+            "--apps",
+            "app-c",
+        ]) {
+            Command::Build { dry_run, apps, .. } => {
+                assert!(dry_run);
+                assert_eq!(apps, ["app-a", "app-b", "app-c"]);
+            }
+            other => panic!("unexpected: {other:?}"),
+        }
+        assert!(Cli::try_parse_from(["funbuild", "build", "--apps"]).is_err());
     }
 
     #[test]

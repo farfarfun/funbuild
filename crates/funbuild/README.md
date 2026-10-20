@@ -30,6 +30,10 @@ PyPI 上的同名包只保留 `funbuild.tool` 的 Python 兼容模块，不提�
 | `VersionFileBuild` | 有纯文本 `VERSION` |
 | `EmptyBuild` | 兜底，只记一条告警 |
 
+子模块工作区只发布 `.gitmodules` 中登记的 `apps/<name>` 直接子模块。在 `scripts/funbuild.toml` 中设置 `exclude-apps = ["app-b"]` 可排除应用，`build-order = ["sdk", "backend"]` 可指定优先发布顺序，其余应用按目录名排序。名单按目录名精确匹配，拼错名称会报错；没有待发布应用时不修改版本或打标签。
+
+使用 `funbuild build --dry-run` 查看本地发布计划，`funbuild build --apps sdk,backend` 临时选择应用（仍遵守排除名单和发布顺序）。这两个参数仅用于子模块工作区。实际发布会在拉取后重新计算计划，并汇总成功、失败、未执行和跳过的应用；失败中止但不回滚先前已发布的应用。
+
 ## 注意：这是一个组织内部工具
 
 funbuild 服务于 [farfarfun](https://github.com/farfarfun) 的发版约定，有几处是写死的：

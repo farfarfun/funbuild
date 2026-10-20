@@ -45,13 +45,37 @@
 # scripts/funbuild.toml
 version = "1.0.0"
 packages = ["funtrack"]   # 可选：这些依赖在每个 app 构建前会被升级到最新版
+exclude-apps = ["demo"]   # 可选：跳过 apps/demo 的构建和发布
+build-order = ["shared-sdk", "backend", "frontend"]  # 可选：按顺序发布
 ```
+
+发布范围仅限 `.gitmodules` 中登记的 `apps/<name>` 直接子模块；`libs/`、`tools/` 等其他目录不会参与。未初始化的子模块和嵌套工作区（自身同时有 `apps/` 与 `scripts/setup.sh`）会跳过，并显示原因。
+
+| 配置 / 参数 | 行为 |
+| --- | --- |
+| `exclude-apps` | 永久排除的应用目录名。省略或 `[]` 表示不排除；被排除的应用不会执行切分支、拉取、依赖升级、构建或发布。 |
+| `build-order` | 列出的应用优先按此顺序执行，剩余应用按目录名排序。省略或 `[]` 时全部按目录名排序；重复名称只执行一次，排除项始终优先。 |
+| `--apps backend,frontend` | 本次只发布选中的应用，仍遵守 `exclude-apps` 和 `build-order`，不会自动补选依赖它们所需的其他应用。 |
+| `--dry-run` | 输出目标版本、发布顺序、跳过的应用及原因。只读取本地检出状态，不拉取、不改文件、不发布、不提交或打标签。 |
+
+配置列表必须由非空目录名字符串组成，区分大小写，不接受路径或通配符。`exclude-apps`、`build-order` 和 `--apps` 中的名称都必须在 `.gitmodules` 登记的应用名单中存在（包括未初始化的应用），拼错名称会报错。工作区 TOML 或 `.gitmodules` 损坏时会中止，不会悄悄忽略配置继续发布。
+
+```bash
+funbuild build --dry-run                         # 先查看完整计划
+funbuild build --dry-run --apps backend,frontend # 预览本次选择
+funbuild build --apps backend,frontend --version 1.0.1
+```
+
+`--dry-run` 和 `--apps` 仅支持子模块工作区；在普通仓库使用会报错。工作区的排除和顺序配置也仅作用于工作区构建，进入应用目录单独构建或运行 `push all` 不受这些配置限制。
 
 `funbuild build` 在这类仓库上依次执行：
 
-1. `pull` 当前仓库，递增共享 `version`。
-2. 遍历 `apps/` 下每个已初始化的 submodule：跳过结构上是嵌套 `<something>-dev` 工作区的 app（自己也有 `apps/` + `scripts/setup.sh`，由它自己的发布节奏管理，不会被递归进入）；其余 app 依次切到跟踪分支、`git pull`、把 `packages` 里配置的依赖升级到最新版（按 app 目录下存在的清单文件分派：`pyproject.toml` → `uv add <pkg>@latest`；`package.json` → 按 `pnpm-lock.yaml`/`yarn.lock`/默认 npm 自动选择 `pnpm add` / `yarn add` / `npm install --save`；`pubspec.yaml` → `dart pub add <pkg>`），再转发 `funbuild build --version <共享版本号>`。
-3. 统一 `push`、打 `v{version}` 标签一次，使所有 submodule 指针更新落成一个提交。
+1. 校验本地配置并筛选应用。没有待发布应用时直接结束，不拉取、不递增版本、不提交或打标签。
+2. `pull` 当前仓库，重新读取配置、版本和应用名单，计算并显示最终计划。拉取后名单为空也直接结束；否则写入共享目标版本（未指定 `--version` 时递增）。预览不联网，因此远端更新可能使实际计划与预览不同。
+3. 按计划逐个处理应用：切到跟踪分支、`git pull`、升级 `packages` 中已声明的依赖，再转发 `funbuild build --version <共享版本号>`。依赖升级按清单分派：`pyproject.toml` → `uv remove <pkg>` 后 `uv add <pkg>`；`package.json` → 根据锁文件选择 pnpm / yarn / npm 安装最新版；`pubspec.yaml` → `dart pub add <pkg>`。
+4. 全部应用命令成功后，提交并推送工作区的配置和子模块指针，再打 `v{version}` 标签。输出每个应用的成功、失败、未执行或跳过状态；工作区自身推送或打标签失败会单独报告。
+
+应用失败会立即中止，先前已成功的应用不会回滚；失败的应用也可能已经上传了产物。检查结果和应用日志后，可以用 `--apps` 配合明确的 `--version` 处理剩余应用。工具不会自动重试、断点续发或判断已有产物能否重复发布；需要 CI 发布的应用，其“成功”表示本地命令完成，CI 结果仍需单独确认。
 
 ### Flutter 项目 (`FlutterBuild`)
 
@@ -198,7 +222,7 @@ cargo build --release  # 产物在 target/release/funbuild
 | `pull` | — | `git pull` |
 | `push` | `target`（位置参数，仅接受 `all`）<br>`--message` / `-m`（默认不传）<br>`--batch-size`（默认 `20`） | 按文件修改时间从旧到新分批提交，最后统一推送；传 `all` 时先依次 push 每个 submodule |
 | `install` | — | 构建 + 安装到当前环境 + 清理产物 |
-| `build` | `message`（位置参数，默认不传）<br>`--version`（默认不传＝自动递增） | 完整发布流水线，见下 |
+| `build` | `message`（位置参数，默认不传）<br>`--version`（默认不传＝自动递增）<br>`--dry-run` / `--apps a,b`（仅子模块工作区） | 完整发布流水线；工作区支持发布预览和临时选择应用，见上 |
 | `release` | 同 `build` | `build` 的别名，行为完全一致 |
 | `tag` | — | 打 `v{version}` 标签并推送 |
 | `clean` | — | 重建 Git 索引以应用新的 `.gitignore`（会产生一次提交） |

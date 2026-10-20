@@ -1,11 +1,11 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use crate::builders::{Builder, RepoContext};
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::manifest::{json, pubspec, toml as toml_manifest};
 use crate::util::normalize_package_name;
-use crate::version::parse_version;
+use crate::version::{next_version, parse_version, strip_v_prefix};
 use crate::{commit, git, shell};
 
 /// `<product>-dev` 编排仓库：`apps/` 下每个 app 是独立仓库的 git submodule。
@@ -15,6 +15,44 @@ use crate::{commit, git, shell};
 /// `funbuild build --version <共享版本号>`，最后统一 push、打 tag 一次。
 pub struct SubmoduleWorkspaceBuild {
     ctx: RepoContext,
+}
+
+struct WorkspacePlan {
+    version: String,
+    apps: Vec<String>,
+    skipped: Vec<(PathBuf, &'static str)>,
+}
+
+impl WorkspacePlan {
+    fn print(&self) {
+        println!("工作区发布计划，目标版本 {}", self.version);
+        for (index, app) in self.apps.iter().enumerate() {
+            println!("  {}. apps/{app}", index + 1);
+        }
+        for (path, reason) in &self.skipped {
+            println!("  跳过 {}: {reason}", path.display());
+        }
+        if self.apps.is_empty() {
+            println!("没有待发布应用，不递增版本、不提交、不打标签。");
+        }
+    }
+
+    fn summary(&self, completed: usize, failed: Option<&str>) {
+        println!("工作区发布结果，目标版本 {}", self.version);
+        for (index, app) in self.apps.iter().enumerate() {
+            let status = if index < completed {
+                "成功"
+            } else if failed == Some(app.as_str()) {
+                "失败（可能已部分发布，请检查该应用日志）"
+            } else {
+                "未执行"
+            };
+            println!("  apps/{app}: {status}");
+        }
+        for (path, reason) in &self.skipped {
+            println!("  {}: 跳过（{reason}）", path.display());
+        }
+    }
 }
 
 impl SubmoduleWorkspaceBuild {
@@ -28,33 +66,23 @@ impl SubmoduleWorkspaceBuild {
         if !config.is_file() {
             return Ok(None);
         }
-        let doc = match toml_manifest::load(&config) {
-            Ok(doc) => doc,
-            Err(error) => {
-                log::warn!("skip {}: {error}", config.display());
-                return Ok(None);
-            }
-        };
+        let doc = toml_manifest::load(&config)?;
 
         let mut ctx = RepoContext::new(repo_path.to_path_buf());
         match doc.get("version") {
             None => ctx.version = None,
             Some(item) => {
                 let Some(raw) = item.as_str() else {
-                    log::warn!(
-                        "skip {}, version must be a string, got {item:?}",
+                    return Err(Error::invalid(format!(
+                        "{}, version must be a string, got {item:?}",
                         config.display()
-                    );
-                    return Ok(None);
+                    )));
                 };
                 let raw = raw.trim();
                 if raw.is_empty() {
                     ctx.version = None;
                 } else {
-                    if parse_version(raw).is_err() {
-                        log::warn!("skip {}, cannot parse version {raw:?}", config.display());
-                        return Ok(None);
-                    }
+                    parse_version(raw)?;
                     // 去掉可能的 v 前缀: tags() 会自行拼 v
                     ctx.version = Some(raw.strip_prefix('v').unwrap_or(raw).to_string());
                 }
@@ -65,6 +93,133 @@ impl SubmoduleWorkspaceBuild {
 
     fn config_path(&self) -> PathBuf {
         self.ctx.repo_path.join(Self::CONFIG)
+    }
+
+    fn app_names(doc: &toml_edit::DocumentMut, key: &str) -> Result<Vec<String>> {
+        let Some(item) = doc.get(key) else {
+            return Ok(Vec::new());
+        };
+        let invalid = || {
+            Error::invalid(format!(
+                "{}: {key} must be an array of app directory names (e.g. [\"app-b\"])",
+                Self::CONFIG
+            ))
+        };
+        let apps = item.as_array().ok_or_else(invalid)?;
+        apps.iter()
+            .map(|item| {
+                let name = item.as_str().ok_or_else(invalid)?;
+                if name.trim().is_empty()
+                    || name == "."
+                    || name == ".."
+                    || name.contains(['/', '\\'])
+                {
+                    return Err(invalid());
+                }
+                Ok(name.to_string())
+            })
+            .collect()
+    }
+
+    fn release_plan(&self, target: Option<&str>, selected: &[String]) -> Result<WorkspacePlan> {
+        let doc = toml_manifest::load(self.config_path())?;
+        let excluded = Self::app_names(&doc, "exclude-apps")?;
+        let order = Self::app_names(&doc, "build-order")?;
+        let mut paths = git::configured_submodule_paths(&self.ctx.repo_path)?;
+        paths.sort();
+        paths.dedup();
+        let known: BTreeSet<_> = paths
+            .iter()
+            .filter(|path| path.parent() == Some(Path::new("apps")))
+            .filter_map(|path| path.file_name().and_then(|name| name.to_str()))
+            .collect();
+        for (key, names) in [
+            ("exclude-apps", excluded.as_slice()),
+            ("build-order", order.as_slice()),
+            ("--apps", selected),
+        ] {
+            for name in names {
+                if !known.contains(name.as_str()) {
+                    return Err(Error::invalid(format!(
+                        "{key}: unknown app {name:?}; expected a direct apps/<name> submodule in .gitmodules"
+                    )));
+                }
+            }
+        }
+        let version = match target {
+            Some(value) => {
+                let value = strip_v_prefix(value);
+                parse_version(value)?;
+                value.to_string()
+            }
+            None => next_version(self.ctx.version.as_deref())?,
+        };
+        let mut plan = WorkspacePlan {
+            version,
+            apps: Vec::new(),
+            skipped: Vec::new(),
+        };
+        for path in paths {
+            let absolute = self.ctx.repo_path.join(&path);
+            let name = path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("");
+            let reason = if path.parent() != Some(Path::new("apps")) || name.is_empty() {
+                Some("不在 apps/ 直接子目录中")
+            } else if excluded.iter().any(|app| app == name) {
+                Some("exclude-apps")
+            } else if !selected.is_empty() && !selected.iter().any(|app| app == name) {
+                Some("未被 --apps 选中")
+            } else if !absolute.join(".git").exists() {
+                Some("子模块未初始化")
+            } else if Self::is_nested_workspace(&absolute) {
+                Some("嵌套工作区")
+            } else {
+                None
+            };
+            if let Some(reason) = reason {
+                plan.skipped.push((path, reason));
+            } else {
+                plan.apps.push(name.to_string());
+            }
+        }
+        plan.apps.sort_by(|a, b| {
+            let rank = |name: &str| {
+                order
+                    .iter()
+                    .position(|app| app == name)
+                    .unwrap_or(usize::MAX)
+            };
+            (rank(a), a).cmp(&(rank(b), b))
+        });
+        Ok(plan)
+    }
+
+    fn build_app(&self, name: &str, version: &str, message: Option<&str>) -> Result<()> {
+        let path = self.ctx.repo_path.join("apps").join(name);
+        log::info!("build {} with shared version {version}", path.display());
+        Self::switch_to_tracked_branch(&path)?;
+        shell::run_checked(
+            &[shell::join([
+                "git",
+                "-C",
+                &path.display().to_string(),
+                "pull",
+            ])],
+            None,
+        )?;
+        self.upgrade_pinned_packages(&path)?;
+        let mut cmd = vec![
+            super::self_command(),
+            "build".to_string(),
+            "--version".to_string(),
+            version.to_string(),
+        ];
+        if let Some(message) = message {
+            cmd.push(message.to_string());
+        }
+        shell::run_checked(&[shell::join(&cmd)], Some(&path))
     }
 
     /// `packages` 里配置的包名：apps/ 下任何 submodule 若依赖这些包，build 前会被
@@ -315,48 +470,49 @@ impl Builder for SubmoduleWorkspaceBuild {
 
     /// 递增共享版本号，对每个 app submodule 转发同一版本号的 build，最后统一
     /// push、打 tag 一次，使所有 submodule 指针更新落成一个提交。
-    fn build(&mut self, message: Option<&str>, target_version: Option<&str>) -> Result<()> {
+    fn build(
+        &mut self,
+        message: Option<&str>,
+        target_version: Option<&str>,
+        dry_run: bool,
+        apps: &[String],
+    ) -> Result<()> {
         // 非法信息必须在任何 app 发布之前拦住
         commit::warn_if_invalid(message);
         log::info!("{} build (submodule workspace)", self.ctx.name);
-        self.pull()?;
-        self.upgrade(target_version)?;
-
-        let version = self.ctx.version.clone().unwrap_or_default();
-        for path in git::submodule_paths(&self.ctx.repo_path) {
-            if Self::is_nested_workspace(&path) {
-                log::info!(
-                    "skip nested workspace, does not join the shared version: {}",
-                    path.display()
-                );
-                continue;
+        let plan = self.release_plan(target_version, apps)?;
+        if dry_run || plan.apps.is_empty() {
+            if dry_run {
+                println!("预览基于本地检出状态；实际发布会拉取后重新计算计划。");
             }
-            log::info!("build {} with shared version {version}", path.display());
-            Self::switch_to_tracked_branch(&path)?;
-            shell::run_checked(
-                &[shell::join([
-                    "git",
-                    "-C",
-                    &path.display().to_string(),
-                    "pull",
-                ])],
-                None,
-            )?;
-            self.upgrade_pinned_packages(&path)?;
-
-            let mut cmd = vec![
-                super::self_command(),
-                "build".to_string(),
-                "--version".to_string(),
-                version.clone(),
-            ];
-            if let Some(message) = message {
-                cmd.push(message.to_string());
-            }
-            shell::run_checked(&[shell::join(&cmd)], Some(&path))?;
+            plan.print();
+            return Ok(());
         }
-        self.push(message, 20)?;
-        self.tags()
+        self.pull()?;
+        // pull 可能更新配置和版本；实际发布必须使用拉取后的计划。
+        *self = Self::detect(&self.ctx.repo_path)?
+            .ok_or_else(|| Error::invalid("workspace configuration disappeared after git pull"))?;
+        let plan = self.release_plan(target_version, apps)?;
+        plan.print();
+        if plan.apps.is_empty() {
+            return Ok(());
+        }
+        if let Err(error) = self.upgrade(Some(&plan.version)) {
+            plan.summary(0, None);
+            return Err(error);
+        }
+        for (index, app) in plan.apps.iter().enumerate() {
+            if let Err(error) = self.build_app(app, &plan.version, message) {
+                plan.summary(index, Some(app));
+                return Err(error);
+            }
+        }
+        let result = self.push(message, 20).and_then(|_| self.tags());
+        plan.summary(plan.apps.len(), None);
+        if result.is_err() {
+            log::error!("应用流程已完成，但工作区提交、推送或打标签失败；请勿直接重跑全部应用");
+        }
+        result
     }
 }
 
@@ -410,14 +566,10 @@ mod tests {
         );
 
         workspace(dir.path(), "version = \"not-a-version\"\n");
-        assert!(SubmoduleWorkspaceBuild::detect(dir.path())
-            .unwrap()
-            .is_none());
+        assert!(SubmoduleWorkspaceBuild::detect(dir.path()).is_err());
 
         workspace(dir.path(), "version = 123\n");
-        assert!(SubmoduleWorkspaceBuild::detect(dir.path())
-            .unwrap()
-            .is_none());
+        assert!(SubmoduleWorkspaceBuild::detect(dir.path()).is_err());
     }
 
     #[test]
@@ -425,7 +577,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         workspace(
             dir.path(),
-            "version = \"1.0.0\"\npackages = [\"funflix\"]\n",
+            "version = \"1.0.0\"\npackages = [\"funflix\"]\nexclude-apps = [\"app-b\"]\nbuild-order = [\"app-a\"]\n",
         );
         let mut build = SubmoduleWorkspaceBuild::detect(dir.path())
             .unwrap()
@@ -434,6 +586,43 @@ mod tests {
         let body = std::fs::read_to_string(dir.path().join("scripts/funbuild.toml")).unwrap();
         assert!(body.contains("version = \"1.0.1\""), "{body}");
         assert!(body.contains("packages = [\"funflix\"]"), "{body}");
+        assert!(body.contains("exclude-apps = [\"app-b\"]"), "{body}");
+        assert!(body.contains("build-order = [\"app-a\"]"), "{body}");
+    }
+
+    #[test]
+    fn absent_or_empty_exclusions_allow_all_apps() {
+        for key in ["exclude-apps", "build-order"] {
+            for config in [String::new(), format!("{key} = []\n")] {
+                let doc = config.parse().unwrap();
+                assert!(SubmoduleWorkspaceBuild::app_names(&doc, key)
+                    .unwrap()
+                    .is_empty());
+            }
+        }
+    }
+
+    #[test]
+    fn rejects_invalid_exclusions_instead_of_ignoring_them() {
+        for value in [
+            "\"app-b\"",
+            "[\"app-b\", 1]",
+            "[\"\"]",
+            "[\" \"]",
+            "[\".\"]",
+            "[\"..\"]",
+            "[\"apps/app-b\"]",
+            "[\"/app-b\"]",
+            "[\"../app-b\"]",
+        ] {
+            for key in ["exclude-apps", "build-order"] {
+                let doc = format!("{key} = {value}\n").parse().unwrap();
+                let error = SubmoduleWorkspaceBuild::app_names(&doc, key)
+                    .unwrap_err()
+                    .to_string();
+                assert!(error.contains(key), "{value}: {error}");
+            }
+        }
     }
 
     #[test]

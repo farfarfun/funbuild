@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+- 子模块工作区新增 `exclude-apps`、`build-order`、`build --apps a,b` 和 `build --dry-run`，支持排除应用、指定发布顺序、临时选择和只读预览。
+- 发布范围限定为 `.gitmodules` 登记的 `apps/<name>` 直接子模块；未知名称和损坏配置会报错，没有待发布应用时不递增版本、不提交或打标签。
+- 实际发布在拉取后重新读取共享版本和配置；输出成功、失败、未执行及跳过的应用，区分应用失败与工作区最终推送或打标签失败。
+
 ## [1.6.107]
 
 - PyPI 包改为只分发 `funbuild.tool` 的通用纯 Python wheel，不再安装 `funbuild` 命令，也不再依赖 `uv`；命令行继续由 apt、Homebrew、crates.io 和 GitHub Release 提供。需要 `uvx funbuild` 或 `pip install funbuild` 获得命令的调用方须改用二进制渠道。
