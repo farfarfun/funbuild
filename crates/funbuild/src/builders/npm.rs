@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use serde_json::{Map, Value};
 
 use crate::builders::{Builder, RepoContext};
-use crate::error::Result;
+use crate::error::{Error, Result};
 use crate::manifest::{json, sync};
 use crate::shell;
 use crate::util::safe_clean_dir;
@@ -53,8 +53,12 @@ fn package_qualifies(pkg: &Map<String, Value>) -> bool {
 }
 
 /// 推断包管理器：显式配置 > packageManager 字段 > lockfile。
-fn detect_pm(pkg_dir: &Path, cfg: &Map<String, Value>) -> String {
-    if let Some(pm) = cfg.get("packageManager").and_then(|v| v.as_str()) {
+fn detect_pm(pkg_dir: &Path, cfg: &Map<String, Value>, pkg: &Map<String, Value>) -> String {
+    if let Some(pm) = cfg
+        .get("packageManager")
+        .or_else(|| pkg.get("packageManager"))
+        .and_then(|v| v.as_str())
+    {
         let base = pm.split('@').next().unwrap_or("").trim().to_lowercase();
         if ["npm", "pnpm", "yarn"].contains(&base.as_str()) {
             return base;
@@ -122,6 +126,56 @@ impl NpmFrontendBuild {
         }
     }
 
+    fn latest_dependency_cmds(&self) -> Result<Vec<String>> {
+        let name_pattern =
+            regex::Regex::new(r"^(?:@[a-zA-Z0-9~][a-zA-Z0-9._~-]*/)?[a-zA-Z0-9~][a-zA-Z0-9._~-]*$")
+                .expect("valid npm package name regex");
+        let mut commands = Vec::new();
+        for path in &self.package_json_paths {
+            let pkg = json::load_object(path)?;
+            let cfg = funbuild_cfg(&pkg);
+            let Some(value) = cfg.get("latest-packages") else {
+                continue;
+            };
+            let invalid = || {
+                Error::latest_dependency(format!(
+                    "{}: funbuild.latest-packages 必须是包名字符串数组（不带版本号）",
+                    path.display()
+                ))
+            };
+            let names = value.as_array().ok_or_else(invalid)?;
+            let dir = path.parent().unwrap_or(&self.ctx.repo_path);
+            let pm = detect_pm(dir, &cfg, &pkg);
+            if !names.is_empty() && pm != "pnpm" {
+                return Err(Error::latest_dependency(format!(
+                    "{}: funbuild.latest-packages 目前仅支持 pnpm，检测到 {pm}",
+                    path.display()
+                )));
+            }
+            let mut seen = std::collections::BTreeSet::new();
+            for value in names {
+                let name = value
+                    .as_str()
+                    .filter(|n| name_pattern.is_match(n))
+                    .ok_or_else(invalid)?;
+                if pkg.get("name").and_then(Value::as_str) == Some(name) || !seen.insert(name) {
+                    continue;
+                }
+                let latest = format!("{name}@latest");
+                let mut args = vec!["pnpm", "add", &latest];
+                if pkg
+                    .get("peerDependencies")
+                    .and_then(Value::as_object)
+                    .is_some_and(|deps| deps.contains_key(name))
+                {
+                    args.push("--save-peer");
+                }
+                commands.push(in_dir_shell(&self.rel_dir(path), &shell::join(args)));
+            }
+        }
+        Ok(commands)
+    }
+
     fn install_cmds(pkg_dir: &Path, cfg: &Map<String, Value>, pm: &str) -> Vec<String> {
         if let Some(custom) = cfg_str(cfg, "install") {
             return vec![custom];
@@ -172,7 +226,7 @@ impl NpmFrontendBuild {
             let dir = path.parent().unwrap_or(&self.ctx.repo_path).to_path_buf();
             let pkg = json::load_object(path)?;
             let cfg = funbuild_cfg(&pkg);
-            let pm = detect_pm(&dir, &cfg);
+            let pm = detect_pm(&dir, &cfg, &pkg);
             out.extend(f(&rel, &dir, &pkg, &cfg, &pm));
         }
         Ok(out)
@@ -245,6 +299,10 @@ impl Builder for NpmFrontendBuild {
         })
     }
 
+    fn sync_latest_dependencies(&mut self) -> Result<()> {
+        shell::run_checked(&self.latest_dependency_cmds()?, self.ctx.cwd())
+    }
+
     /// 带 bin 字段的包才本地全局装一份。
     fn cmd_install(&self) -> Result<Vec<String>> {
         self.for_each_package(|rel, _dir, pkg, cfg, pm| {
@@ -262,7 +320,7 @@ impl Builder for NpmFrontendBuild {
             let dir = path.parent().unwrap_or(&self.ctx.repo_path).to_path_buf();
             let pkg = json::load_object(path)?;
             let cfg = funbuild_cfg(&pkg);
-            let pm = detect_pm(&dir, &cfg);
+            let pm = detect_pm(&dir, &cfg, &pkg);
             out.extend(self.publish_cmds_for(&rel, &pkg, &cfg, &pm, path));
         }
         Ok(out)
@@ -411,6 +469,102 @@ mod tests {
         std::fs::write(dir.path().join("package-lock.json"), "{}").unwrap();
         let build = NpmFrontendBuild::detect(dir.path()).unwrap().unwrap();
         assert_eq!(build.cmd_build().unwrap()[0], "npm ci");
+    }
+
+    #[test]
+    fn latest_packages_use_manifest_package_manager_without_lockfile() {
+        let dir = tempfile::tempdir().unwrap();
+        pkg_json(
+            dir.path(),
+            r#"{"name":"demo","version":"1.0.0","packageManager":"pnpm@10.0.0","scripts":{"build":"x"},"funbuild":{"latest-packages":["@org/sdk","new-package","@org/sdk","demo"]}}"#,
+        );
+        let build = NpmFrontendBuild::detect(dir.path()).unwrap().unwrap();
+        assert_eq!(
+            build.latest_dependency_cmds().unwrap(),
+            vec![
+                "pnpm add '@org/sdk@latest'",
+                "pnpm add 'new-package@latest'"
+            ]
+        );
+        assert_eq!(build.cmd_build().unwrap()[0], "pnpm install");
+    }
+
+    #[test]
+    fn latest_packages_are_local_to_each_package_and_keep_custom_install() {
+        let dir = tempfile::tempdir().unwrap();
+        pkg_json(dir.path(), BUILDABLE);
+        let child = dir.path().join("extbuild/web");
+        pkg_json(
+            &child,
+            r#"{"name":"web","version":"1.0.0","scripts":{"build":"x"},"peerDependencies":{"react":"^18"},"funbuild":{"install":"custom-install","latest-packages":["react","vite"]}}"#,
+        );
+        std::fs::write(child.join("pnpm-lock.yaml"), "").unwrap();
+        let build = NpmFrontendBuild::detect(dir.path()).unwrap().unwrap();
+        assert_eq!(
+            build.latest_dependency_cmds().unwrap(),
+            vec![
+                "(cd extbuild/web && pnpm add 'react@latest' --save-peer)",
+                "(cd extbuild/web && pnpm add 'vite@latest')",
+            ]
+        );
+        assert!(build
+            .cmd_build()
+            .unwrap()
+            .contains(&"(cd extbuild/web && custom-install)".into()));
+    }
+
+    #[test]
+    fn latest_packages_reject_invalid_names_and_config() {
+        let dir = tempfile::tempdir().unwrap();
+        for invalid in [
+            serde_json::json!("react"),
+            serde_json::json!(null),
+            serde_json::json!([42]),
+            serde_json::json!([""]),
+            serde_json::json!(["react@19"]),
+            serde_json::json!(["--global"]),
+            serde_json::json!(["@org/*"]),
+            serde_json::json!(["a; touch injected"]),
+            serde_json::json!(["file:../pkg"]),
+        ] {
+            let mut pkg: Value = serde_json::from_str(BUILDABLE).unwrap();
+            pkg["packageManager"] = "pnpm@10.0.0".into();
+            pkg["funbuild"] = serde_json::json!({"latest-packages": invalid});
+            pkg_json(dir.path(), &pkg.to_string());
+            let build = NpmFrontendBuild::detect(dir.path()).unwrap().unwrap();
+            let error = build.latest_dependency_cmds().unwrap_err().to_string();
+            assert!(
+                error.contains("package.json") && error.contains("latest-packages"),
+                "{error}"
+            );
+        }
+    }
+
+    #[test]
+    fn latest_packages_require_pnpm_but_empty_or_absent_config_is_a_noop() {
+        let dir = tempfile::tempdir().unwrap();
+        for cfg in [
+            serde_json::json!({}),
+            serde_json::json!({"latest-packages": []}),
+        ] {
+            let mut pkg: Value = serde_json::from_str(BUILDABLE).unwrap();
+            pkg["funbuild"] = cfg;
+            pkg_json(dir.path(), &pkg.to_string());
+            let mut build = NpmFrontendBuild::detect(dir.path()).unwrap().unwrap();
+            assert!(build.latest_dependency_cmds().unwrap().is_empty());
+            build.sync_latest_dependencies().unwrap();
+        }
+        let mut pkg: Value = serde_json::from_str(BUILDABLE).unwrap();
+        pkg["packageManager"] = "pnpm@10.0.0".into();
+        pkg["funbuild"] =
+            serde_json::json!({"packageManager": "npm", "latest-packages": ["react"]});
+        pkg_json(dir.path(), &pkg.to_string());
+        let build = NpmFrontendBuild::detect(dir.path()).unwrap().unwrap();
+        assert!(build
+            .latest_dependency_cmds()
+            .unwrap_err()
+            .to_string()
+            .contains("检测到 npm"));
     }
 
     #[test]

@@ -50,8 +50,8 @@ impl Builder for UvNpmHybridBuild {
     }
 
     fn sync_latest_dependencies(&mut self) -> Result<()> {
-        // 混合仓的 Python 侧就是一个完整的 UvBuild，依赖下界的事交给它
-        self.uv.sync_latest_dependencies()
+        self.uv.sync_latest_dependencies()?;
+        self.npm.sync_latest_dependencies()
     }
 
     fn cmd_build(&self) -> Result<Vec<String>> {
@@ -170,6 +170,23 @@ mod tests {
             "{publish:?}"
         );
         assert!(publish.contains(&"npm publish".to_string()), "{publish:?}");
+    }
+
+    #[test]
+    fn latest_dependencies_also_validate_frontend_config() {
+        let dir = tempfile::tempdir().unwrap();
+        hybrid_repo(dir.path());
+        std::fs::write(
+            dir.path().join("package.json"),
+            r#"{"name":"demo-web","version":"1.0.0","packageManager":"pnpm@10.0.0","scripts":{"build":"x"},"funbuild":{"latest-packages":"invalid"}}"#,
+        )
+        .unwrap();
+        let mut build = UvNpmHybridBuild::detect(dir.path()).unwrap().unwrap();
+        assert!(build
+            .sync_latest_dependencies()
+            .unwrap_err()
+            .to_string()
+            .contains("funbuild.latest-packages"));
     }
 
     #[test]

@@ -6,6 +6,10 @@
 - 发布范围限定为 `.gitmodules` 登记的 `apps/<name>` 直接子模块；未知名称和损坏配置会报错，没有待发布应用时不递增版本、不提交或打标签。
 - 实际发布在拉取后重新读取共享版本和配置；输出成功、失败、未执行及跳过的应用，区分应用失败与工作区最终推送或打标签失败。
 
+## [1.6.109]
+
+- 独立 pnpm 项目支持在 `package.json` 的 `funbuild.latest-packages` 中只配置包名；构建前或运行 `funbuild latest-deps` 时自动更新依赖声明和锁文件，支持子包及 Python + 前端混合项目。包管理器识别补齐顶层 `packageManager` 字段。
+
 ## [1.6.107]
 
 - PyPI 包改为只分发 `funbuild.tool` 的通用纯 Python wheel，不再安装 `funbuild` 命令，也不再依赖 `uv`；命令行继续由 apt、Homebrew、crates.io 和 GitHub Release 提供。需要 `uvx funbuild` 或 `pip install funbuild` 获得命令的调用方须改用二进制渠道。

@@ -366,6 +366,26 @@ funbuild latest-deps   # 只改写 pyproject.toml，不构建、不发布、不�
 
 > Poetry 的 `[tool.poetry.dependencies]` 表形式暂不在覆盖范围内，目前只处理 PEP 621 的 `[project]` 依赖数组与 PEP 735 的 `[dependency-groups]`。
 
+### pnpm 项目每次发版取最新依赖
+
+在独立项目的 `package.json` 中只需配置包名，不写版本号或安装命令：
+
+```json
+{
+  "funbuild": {
+    "latest-packages": ["@your-org/sdk", "your-package"]
+  }
+}
+```
+
+包管理器沿用项目的 `packageManager` 字段或 `pnpm-lock.yaml` 自动识别；`funbuild.packageManager` 可显式覆盖。此配置目前仅支持 pnpm，非空名单用于 npm / yarn 时会报错。
+
+每次 `funbuild build` 在构建前执行 `pnpm add <包名>@latest`，由 pnpm 使用项目自己的 registry 配置查询最新版本，并更新 `package.json` 和 `pnpm-lock.yaml`。已有的 `dependencies`、`devDependencies`、`optionalDependencies` 保留分组，未声明的包补进 `dependencies`；已有 peer 依赖使用 `--save-peer`，按 pnpm 规则同时安装为开发依赖。重复包名只处理一次，本包自身跳过。
+
+`extbuild/`、`exts/` 下参与构建的子包各自在自己的 `package.json` 配置，根包的名单不会继承给子包；Python + 前端混合项目两侧的配置也各自生效。只接受普通包名或 `@scope/name`，不接受版本号、路径或通配符。升级失败会中止构建；`latest` 可能跨大版本，已完成的依赖修改不会自动回滚。
+
+可运行 `funbuild latest-deps` 单独同步依赖（会更新依赖声明、锁文件并安装依赖，不构建、不发布）。`funbuild install` 不触发这份名单。
+
 ### 维护类（高风险）
 
 ```bash
@@ -416,7 +436,7 @@ funbuild build
 ## 配置说明
 
 - **Python 项目**：在根目录 `pyproject.toml` 中维护 `[project].version` 与依赖；UV 类构建会读写该版本并同步到其它清单。可选的 `[tool.funbuild].latest-packages` 用于指定「每次发版取最新」的依赖，见上方「[让某个依赖每次发版都取最新](#让某个依赖每次发版都取最新)」。
-- **纯前端 / 子包**：在对应 `package.json` 中可使用 `funbuild` 字段（对象或 `true`）扩展行为（例如自定义 `build` 命令、`cleanDirs` 等），具体逻辑见 `crates/funbuild-core/src/builders/npm.rs`。
+- **纯前端 / 子包**：在对应 `package.json` 中可使用 `funbuild` 字段（对象或 `true`）扩展行为（例如自定义 `build` 命令、`cleanDirs` 等）；pnpm 项目可用 `funbuild.latest-packages` 配置每次发版取最新的包名，具体逻辑见 `crates/funbuild/src/builders/npm.rs`。
 - **Flutter 项目**：在 `pubspec.yaml` 中可使用 `funbuild` 字段自定义 `build` / `install` / `publish` / `cleanDirs`，具体逻辑见 `crates/funbuild-core/src/builders/flutter.rs`；详见上方「[打包支持的项目类型](#打包支持的项目类型)」里的 Flutter 小节。
 - **纯 Rust 项目**：版本主源是 `Cargo.toml` 的 `[package].version`（或 `[workspace.package].version`），没有可配置项 —— 发版前的三项检查与发布边界都是固定的，详见上方「[纯 Rust 项目 (`CargoBuild`)](#纯-rust-项目-cargobuild)」小节。
 
